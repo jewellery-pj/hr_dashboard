@@ -7,7 +7,8 @@ import {
   MessageSquare, 
   UserPlus, 
   XCircle,
-  Filter
+  Filter,
+  Settings
 } from 'lucide-react';
 import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower } from './data/mockData';
 import { KpiCard } from './components/KpiCard';
@@ -23,10 +24,14 @@ import { ExitInterviewDashboard } from './components/ExitInterviewDashboard';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData } from './services/excelService';
+import Login from './components/Login';
+import ChangePassword from './components/ChangePassword';
+import { useAuth } from './context/AuthContext';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function App() {
+  const { isAuthenticated, user, logout, login } = useAuth();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [resignations, setResignations] = useState<Resignation[]>([]);
   const [exitInterviews, setExitInterviews] = useState<ExitInterview[]>([]);
@@ -35,10 +40,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
   const [activeTab, setActiveTab] = useState<'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower'>('overview');
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const loadData = async () => {
       try {
         setLoading(true);
@@ -73,7 +81,7 @@ export default function App() {
     };
 
     loadData();
-  }, []);
+  }, [isAuthenticated]);
 
   const recruitmentDepts = useMemo(() => 
     Array.from(new Set(candidates.map(c => c.department))).sort()
@@ -104,7 +112,7 @@ export default function App() {
 
     const months = Array.from(new Set(data.map(c => c.month)))
       .sort((a, b) => MONTH_ORDER.indexOf(a as string) - MONTH_ORDER.indexOf(b as string));
-    return ['All', ...MONTH_ORDER]; // Keep all months as requested previously
+    return ['All', ...MONTH_ORDER];
   }, [candidates, resignations, exitInterviews, manpower, activeTab]);
 
   const filteredCandidates = useMemo(() => {
@@ -155,6 +163,11 @@ export default function App() {
     }));
   }, [filteredCandidates]);
 
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={login} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
       {/* Main Content */}
@@ -190,6 +203,22 @@ export default function App() {
                     <option key={month} value={month}>{month}</option>
                   ))}
                 </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowChangePassword(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200 transition-all"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Change Password</span>
+                </button>
+                <button
+                  onClick={logout}
+                  className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-lg text-sm font-semibold hover:bg-rose-600 transition-all"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden sm:inline">Logout</span>
+                </button>
               </div>
               <div className="flex flex-col items-end gap-2">
                 {loading && (
@@ -372,6 +401,13 @@ export default function App() {
           <ManpowerDashboard manpower={manpower} externalMonthFilter={selectedMonth} />
         )}
       </main>
+
+      {showChangePassword && (
+        <ChangePassword
+          username={user?.username || ''}
+          onClose={() => setShowChangePassword(false)}
+        />
+      )}
     </div>
   );
 }
