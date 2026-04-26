@@ -90,6 +90,42 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
       .sort((a, b) => b.count - a.count);
   }, [filteredData]);
 
+  const branchStats = useMemo(() => {
+    const counts = filteredData.reduce((acc, r) => {
+      const branch = r.branch || 'Unknown';
+      acc[branch] = (acc[branch] || 0) + r.actual;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const total = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0);
+
+    return (Object.entries(counts) as [string, number][])
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredData]);
+
+  const genderStats = useMemo(() => {
+    const counts = filteredData.reduce((acc, r) => {
+      const gender = r.gender || 'Unknown';
+      acc[gender] = (acc[gender] || 0) + r.actual;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const total = (Object.values(counts) as number[]).reduce((a, b) => a + b, 0);
+
+    return (Object.entries(counts) as [string, number][])
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: total > 0 ? (count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredData]);
+
   const [selectedBreakdownDept, setSelectedBreakdownDept] = useState<string>('');
   const [selectedBreakdownShop, setSelectedBreakdownShop] = useState<string>('');
 
@@ -200,6 +236,12 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <BreakdownList title="Employees by Department" data={deptStats} />
         <BreakdownList title="Employees by Shop Location" data={shopLocationStats} />
+      </div>
+
+      {/* Branch and Gender Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <BreakdownList title="Employees by Branch" data={branchStats} />
+        <BreakdownList title="Employees by Gender" data={genderStats} />
       </div>
 
       {/* Position Breakdown by Department */}

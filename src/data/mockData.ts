@@ -57,6 +57,22 @@ export interface Manpower {
   variance: number;
   month: string;
   shopLocation?: string;
+  branch?: string;
+  gender?: string;
+}
+
+export interface JobNetData {
+  id: string;
+  name: string;
+  position: string;
+  department: string;
+  phNo: string;
+  cvReceivedDate: string;
+  firstInterviewDate: string;
+  time: string;
+  interviewScore: number;
+  secondInterviewDate: string;
+  remark: string;
 }
 
 const positions = [
@@ -201,14 +217,14 @@ export const mockExitInterviews: ExitInterview[] = [
 ];
 
 export const mockManpower: Manpower[] = [
-  { id: 'mp-1', department: 'Sales', position: 'Junior Sales', budgeted: 40, actual: 36, variance: -4, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-2', department: 'Security', position: 'Guard', budgeted: 20, actual: 16, variance: -4, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-3', department: 'BOD Support Office', position: 'Deputy General Manager', budgeted: 5, actual: 3, variance: -2, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-4', department: 'Goldsmith Production', position: 'Goldsmith', budgeted: 50, actual: 45, variance: -5, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (2)' },
-  { id: 'mp-5', department: 'Admin', position: 'Office Staff', budgeted: 10, actual: 8, variance: -2, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-6', department: 'Marketing', position: 'Manager', budgeted: 5, actual: 4, variance: -1, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (2)' },
-  { id: 'mp-7', department: 'Finance & Account (Showroom)', position: 'CA', budgeted: 10, actual: 9, variance: -1, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-8', department: 'Operations', position: 'Staff', budgeted: 25, actual: 20, variance: -5, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-9', department: 'IT', position: 'Staff', budgeted: 15, actual: 15, variance: 0, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
-  { id: 'mp-10', department: 'HR', position: 'Staff', budgeted: 12, actual: 12, variance: 0, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)' },
+  { id: 'mp-1', department: 'Sales', position: 'Junior Sales', budgeted: 40, actual: 36, variance: -4, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Male' },
+  { id: 'mp-2', department: 'Security', position: 'Guard', budgeted: 20, actual: 16, variance: -4, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Male' },
+  { id: 'mp-3', department: 'BOD Support Office', position: 'Deputy General Manager', budgeted: 5, actual: 3, variance: -2, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Female' },
+  { id: 'mp-4', department: 'Goldsmith Production', position: 'Goldsmith', budgeted: 50, actual: 45, variance: -5, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (2)', branch: 'Mandalay', gender: 'Male' },
+  { id: 'mp-5', department: 'Admin', position: 'Office Staff', budgeted: 10, actual: 8, variance: -2, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Female' },
+  { id: 'mp-6', department: 'Marketing', position: 'Manager', budgeted: 5, actual: 4, variance: -1, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (2)', branch: 'Mandalay', gender: 'Female' },
+  { id: 'mp-7', department: 'Finance & Account (Showroom)', position: 'CA', budgeted: 10, actual: 9, variance: -1, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Male' },
+  { id: 'mp-8', department: 'Operations', position: 'Staff', budgeted: 25, actual: 20, variance: -5, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Male' },
+  { id: 'mp-9', department: 'IT', position: 'Staff', budgeted: 15, actual: 15, variance: 0, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Male' },
+  { id: 'mp-10', department: 'HR', position: 'Staff', budgeted: 12, actual: 12, variance: 0, month: 'Mar', shopLocation: 'ဆိုင်အမှတ် (1)', branch: 'Yangon', gender: 'Female' },
 ];

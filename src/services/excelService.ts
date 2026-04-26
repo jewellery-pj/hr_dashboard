@@ -1,10 +1,11 @@
 import Papa from 'papaparse';
-import { Candidate, Resignation, ExitInterview, Manpower } from '../data/mockData';
+import { Candidate, Resignation, ExitInterview, Manpower, JobNetData } from '../data/mockData';
 
 const RECRUITMENT_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=0';
 const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=421155818';
 const EXIT_INTERVIEW_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=773827159';
 const MANPOWER_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=286117473';
+const JOBNET_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=195767405';
 
 const parseNumber = (val: any): number => {
   if (typeof val === 'number') return val;
@@ -250,27 +251,31 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
 
         // Skip header row
         const rows = data.slice(1);
-        
+
         // The user says "role 5" is Department and "role 7" is Shop Location.
         // Based on the image:
-        // A(0): No, B(1): CODE, C(2): FP No, D(3): Name, E(4): Position, F(5): Dept, G(6): Section, H(7): Shop Location
-        // So Dept is index 5, Shop Location is index 7.
-        
+        // A(0): No, B(1): FP No, C(2): Employee Name, D(3): Position, E(4): Department, F(5): Section, G(6): Branch, H(7): Shop Location, I(8): Gender
+        // So Dept is index 4, Position is index 3, Branch is index 6, Shop Location is index 7, Gender is index 8.
+
         // Since it's an employee list, we aggregate by Dept, Position, and Location
         const aggregated = rows.reduce((acc, row) => {
-          const dept = row[5] || 'Unknown';
-          const pos = row[4] || 'Unknown';
+          const dept = row[4] || 'Unknown';
+          const pos = row[3] || 'Unknown';
+          const branch = row[6] || 'Unknown';
           const loc = row[7] || 'Unknown';
+          const gender = row[8] || 'Unknown';
           const month = row[11] || 'Mar'; // Assuming month might be further right or default
-          
+
           if (dept === 'Unknown' && pos === 'Unknown') return acc;
-          
+
           const key = `${dept}|${pos}|${loc}`;
           if (!acc[key]) {
             acc[key] = {
               department: dept,
               position: pos,
               shopLocation: loc,
+              branch: branch,
+              gender: gender,
               month: month,
               actual: 0
             };
@@ -288,9 +293,64 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
           variance: 0,
           month: item.month,
           shopLocation: item.shopLocation,
+          branch: item.branch,
+          gender: item.gender,
         }));
-        
+
         resolve(manpower);
+      },
+      error: (error) => {
+        reject(error);
+      }
+    });
+  });
+};
+
+export const fetchJobNetData = (): Promise<JobNetData[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(JOBNET_CSV_URL, {
+      download: true,
+      header: false,
+      complete: (results) => {
+        const data = results.data as any[];
+        if (data.length < 2) {
+          resolve([]);
+          return;
+        }
+
+        // Skip header row
+        const rows = data.slice(1);
+
+        // Column mapping based on the image:
+        // A(0): စဉ် (No)
+        // B(1): အမည် (Name)
+        // C(2): ရာထူး (Position)
+        // D(3): Department
+        // E(4): Ph No.
+        // F(5): CV အဝင်ရက်စွဲ (CV Received Date)
+        // G(6): First Interview Date
+        // H(7): Time
+        // I(8): အင်တာဗျူးရမှတ် (Interview Score)
+        // J(9): Second Interview Date
+        // K(10): Second Interview Time
+        // L(11): Remark
+
+        const jobNetData: JobNetData[] = rows
+          .map((row, index) => ({
+            id: `jobnet-${index + 1}`,
+            name: row[1] || 'Unknown',
+            position: row[2] || 'Unknown',
+            department: row[3] || 'Unknown',
+            phNo: row[4] || '',
+            cvReceivedDate: row[5] || '',
+            firstInterviewDate: row[6] || '',
+            time: row[7] || '',
+            interviewScore: parseNumber(row[8]),
+            secondInterviewDate: row[9] || '',
+            remark: row[11] || '',
+          }));
+
+        resolve(jobNetData);
       },
       error: (error) => {
         reject(error);

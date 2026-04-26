@@ -10,7 +10,7 @@ import {
   Filter,
   Settings
 } from 'lucide-react';
-import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower } from './data/mockData';
+import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower, JobNetData } from './data/mockData';
 import { KpiCard } from './components/KpiCard';
 import { HiringFunnel } from './components/HiringFunnel';
 import { TrendChart } from './components/TrendChart';
@@ -23,7 +23,8 @@ import { ResignationDashboard } from './components/ResignationDashboard';
 import { ExitInterviewDashboard } from './components/ExitInterviewDashboard';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { OverviewDashboard } from './components/OverviewDashboard';
-import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData } from './services/excelService';
+import { JobNetDashboard } from './components/JobNetDashboard';
+import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData, fetchJobNetData } from './services/excelService';
 import Login from './components/Login';
 import ChangePassword from './components/ChangePassword';
 import { useAuth } from './context/AuthContext';
@@ -36,10 +37,11 @@ export default function App() {
   const [resignations, setResignations] = useState<Resignation[]>([]);
   const [exitInterviews, setExitInterviews] = useState<ExitInterview[]>([]);
   const [manpower, setManpower] = useState<Manpower[]>([]);
+  const [jobNetData, setJobNetData] = useState<JobNetData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
-  const [activeTab, setActiveTab] = useState<'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower' | 'jobnet'>('overview');
   const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
@@ -50,13 +52,14 @@ export default function App() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [excelData, resData, exitData, mpData] = await Promise.all([
+        const [excelData, resData, exitData, mpData, jnData] = await Promise.all([
           fetchExcelData(),
           fetchResignationData(),
           fetchExitInterviewData(),
-          fetchManpowerData()
+          fetchManpowerData(),
+          fetchJobNetData()
         ]);
-        
+
         if (excelData && excelData.length > 0) {
           setCandidates(excelData);
           // Set initial department for position counts
@@ -71,6 +74,9 @@ export default function App() {
         }
         if (mpData && mpData.length > 0) {
           setManpower(mpData);
+        }
+        if (jnData && jnData.length > 0) {
+          setJobNetData(jnData);
         }
       } catch (err) {
         console.error('Failed to fetch Excel data:', err);
@@ -182,10 +188,11 @@ export default function App() {
               <div>
                 <h2 className="text-3xl font-bold tracking-tight text-slate-900">
                   {activeTab === 'overview' ? 'Executive Overview' :
-                   activeTab === 'recruitment' ? 'Recruitment Overview' : 
+                   activeTab === 'recruitment' ? 'Recruitment Overview' :
                    activeTab === 'resignation' ? 'Resignation Analysis' :
                    activeTab === 'exit' ? 'Exit Interview Insights' :
-                   'Manpower Tracking'}
+                   activeTab === 'manpower' ? 'Manpower Tracking' :
+                   'Job Net'}
                 </h2>
                 <p className="text-slate-500 mt-1 font-medium">Executive Dashboard</p>
               </div>
@@ -287,13 +294,24 @@ export default function App() {
             <button
               onClick={() => setActiveTab('manpower')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === 'manpower' 
-                ? 'bg-white text-emerald-600 shadow-sm' 
+                activeTab === 'manpower'
+                ? 'bg-white text-emerald-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               Manpower
+            </button>
+            <button
+              onClick={() => setActiveTab('jobnet')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'jobnet'
+                ? 'bg-white text-purple-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Job Net
             </button>
           </div>
         </header>
@@ -397,8 +415,10 @@ export default function App() {
           <ResignationDashboard resignations={resignations} externalMonthFilter={selectedMonth} />
         ) : activeTab === 'exit' ? (
           <ExitInterviewDashboard exitInterviews={exitInterviews} externalMonthFilter={selectedMonth} />
-        ) : (
+        ) : activeTab === 'manpower' ? (
           <ManpowerDashboard manpower={manpower} externalMonthFilter={selectedMonth} />
+        ) : (
+          <JobNetDashboard jobNetData={jobNetData} externalMonthFilter={selectedMonth} />
         )}
       </main>
 
