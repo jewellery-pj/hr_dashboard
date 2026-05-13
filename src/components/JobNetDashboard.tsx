@@ -32,12 +32,6 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
   , [jobNetData]);
 
   const filteredData = useMemo(() => {
-    let monthAbbrev = externalMonthFilter;
-    if (externalMonthFilter && externalMonthFilter !== 'All') {
-      const selectedDate = new Date(externalMonthFilter);
-      monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
-    }
-    
     return jobNetData.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
       const matchesSearch = searchQuery === '' ||
@@ -45,7 +39,7 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
         r.position.toLowerCase().includes(searchQuery.toLowerCase());
 
       let matchesMonth = true;
-      if (externalMonthFilter && r.cvReceivedDate) {
+      if (externalMonthFilter !== 'All' && r.cvReceivedDate) {
         const dateParts = r.cvReceivedDate.split(/[./-]/);
         if (dateParts.length >= 2) {
           const monthNum = parseInt(dateParts[1]);
@@ -53,7 +47,7 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
             'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
             'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
           };
-          const targetMonth = monthMap[monthAbbrev] || parseInt(monthAbbrev);
+          const targetMonth = monthMap[externalMonthFilter] || parseInt(externalMonthFilter);
           matchesMonth = monthNum === targetMonth;
         } else {
           matchesMonth = false;

@@ -40,7 +40,7 @@ export default function App() {
   const [jobNetData, setJobNetData] = useState<JobNetData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('All');
   const [activeTab, setActiveTab] = useState<'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower' | 'jobnet'>('overview');
   const [showChangePassword, setShowChangePassword] = useState(false);
 
@@ -126,10 +126,8 @@ export default function App() {
   }, [candidates, resignations, exitInterviews, manpower, activeTab]);
 
   const filteredCandidates = useMemo(() => {
-    if (!selectedMonth) return candidates;
-    const selectedDate = new Date(selectedMonth);
-    const monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
-    return candidates.filter(c => c.month === monthAbbrev);
+    if (selectedMonth === 'All') return candidates;
+    return candidates.filter(c => c.month === selectedMonth);
   }, [candidates, selectedMonth]);
 
   const stats = useMemo(() => {
@@ -205,14 +203,17 @@ export default function App() {
             </div>
             <div className="flex items-center gap-6">
               <div className="flex flex-col items-end gap-1">
-                <label htmlFor="month-filter" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Date</label>
-                <input 
+                <label htmlFor="month-filter" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Month</label>
+                <select 
                   id="month-filter"
-                  type="date"
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
                   className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all cursor-pointer"
-                />
+                >
+                  {availableMonths.map(month => (
+                    <option key={month} value={month}>{month}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-3">
                 <button

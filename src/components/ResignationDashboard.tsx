@@ -23,6 +23,7 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
   const [locFilter, setLocFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [serviceMonthFilter, setServiceMonthFilter] = useState<string>('All');
+  const [lastWorkingDateFilter, setLastWorkingDateFilter] = useState<string>('');
   const [commentSearch, setCommentSearch] = useState<string>('');
 
   const departments = useMemo(() => 
@@ -68,25 +69,53 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
     ['All', ...Array.from(new Set(resignations.map(r => r.serviceMonth).filter(Boolean) as string[]))].sort()
   , [resignations]);
 
+
   const filteredResignations = useMemo(() => {
-    let monthAbbrev = externalMonthFilter;
-    if (externalMonthFilter && externalMonthFilter !== 'All') {
-      const selectedDate = new Date(externalMonthFilter);
-      monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
-    }
-    
     return resignations.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
       const matchesLoc = locFilter === 'All' || r.location === locFilter;
       const matchesStatus = statusFilter === 'All' || (r.resignStatus || 'Resign') === statusFilter;
       const matchesServiceMonth = serviceMonthFilter === 'All' || r.serviceMonth === serviceMonthFilter;
-      const matchesMonth = !externalMonthFilter || r.month === monthAbbrev;
+      
+      let matchesLastWorkingDate = true;
+      if (lastWorkingDateFilter && r.resignationDate) {
+        // Normalize date formats for comparison
+        const normalizeDate = (dateStr: string) => {
+          // Handle DD.MM.YYYY format (e.g., '15.3.2026')
+          if (dateStr.includes('.')) {
+            const parts = dateStr.split('.');
+            if (parts.length === 3) {
+              const day = parts[0].padStart(2, '0');
+              const month = parts[1].padStart(2, '0');
+              const year = parts[2];
+              return `${year}-${month}-${day}`;
+            }
+          }
+          // Handle MM/DD/YY format (e.g., '12/26/25')
+          if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            if (parts.length === 3) {
+              const month = parts[0].padStart(2, '0');
+              const day = parts[1].padStart(2, '0');
+              const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+              return `${year}-${month}-${day}`;
+            }
+          }
+          // Already in YYYY-MM-DD format
+          return dateStr;
+        };
+        
+        const normalizedDataDate = normalizeDate(r.resignationDate);
+        matchesLastWorkingDate = normalizedDataDate === lastWorkingDateFilter;
+      }
+      
+      const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
       const matchesComment = commentSearch === '' || 
         (r.comment || r.reason || '').toLowerCase().includes(commentSearch.toLowerCase());
       
-      return matchesDept && matchesLoc && matchesStatus && matchesServiceMonth && matchesMonth && matchesComment;
+      return matchesDept && matchesLoc && matchesStatus && matchesServiceMonth && matchesLastWorkingDate && matchesMonth && matchesComment;
     });
-  }, [resignations, deptFilter, locFilter, statusFilter, serviceMonthFilter, externalMonthFilter, commentSearch]);
+  }, [resignations, deptFilter, locFilter, statusFilter, serviceMonthFilter, lastWorkingDateFilter, externalMonthFilter, commentSearch]);
 
   const stats = useMemo(() => {
     return {
@@ -164,7 +193,7 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
           <Filter className="w-4 h-4 text-slate-400" />
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Filters</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-500 ml-1">Department</label>
             <select 
@@ -204,6 +233,15 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
             >
               {serviceMonths.map(sm => <option key={sm} value={sm}>{sm}</option>)}
             </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-500 ml-1">Last Working Date</label>
+            <input 
+              type="date"
+              value={lastWorkingDateFilter}
+              onChange={(e) => setLastWorkingDateFilter(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-500 ml-1">Search Comment</label>
