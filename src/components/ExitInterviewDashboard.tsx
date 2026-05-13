@@ -17,6 +17,7 @@ const COLORS = [
 export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ exitInterviews, externalMonthFilter = 'All' }) => {
   const [deptFilter, setDeptFilter] = useState<string>('All');
   const [reasonSearch, setReasonSearch] = useState<string>('');
+  const [dateFilter, setDateFilter] = useState<string>('');
   const [selectedInterview, setSelectedInterview] = useState<ExitInterview | null>(null);
   const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
 
@@ -54,15 +55,43 @@ export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ 
     return exitInterviews.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
       const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
+      
+      let matchesDate = true;
+      if (dateFilter && r.resignationDate) {
+        const normalizeDate = (dateStr: string) => {
+          if (dateStr.includes('.')) {
+            const parts = dateStr.split('.');
+            if (parts.length === 3) {
+              const day = parts[0].padStart(2, '0');
+              const month = parts[1].padStart(2, '0');
+              const year = parts[2];
+              return `${year}-${month}-${day}`;
+            }
+          }
+          if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            if (parts.length === 3) {
+              const month = parts[0].padStart(2, '0');
+              const day = parts[1].padStart(2, '0');
+              const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+              return `${year}-${month}-${day}`;
+            }
+          }
+          return dateStr;
+        };
+        const normalizedDataDate = normalizeDate(r.resignationDate);
+        matchesDate = normalizedDataDate === dateFilter;
+      }
+      
       const matchesReason = reasonSearch === '' || 
         r.reason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
         r.requestReason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
         r.hrReason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
         (r.feedback || '').toLowerCase().includes(reasonSearch.toLowerCase());
       
-      return matchesDept && matchesMonth && matchesReason;
+      return matchesDept && matchesMonth && matchesDate && matchesReason;
     });
-  }, [exitInterviews, deptFilter, externalMonthFilter, reasonSearch]);
+  }, [exitInterviews, deptFilter, externalMonthFilter, dateFilter, reasonSearch]);
 
   const requestReasonStats = useMemo(() => {
     const counts = filteredData.reduce((acc, r) => {
@@ -132,7 +161,7 @@ export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ 
           <Filter className="w-4 h-4 text-slate-400" />
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Filters</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-500 ml-1">Department</label>
             <select 
@@ -142,6 +171,15 @@ export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ 
             >
               {departments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-500 ml-1">Filter by Date</label>
+            <input 
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+            />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-slate-500 ml-1">Search Reason/Feedback</label>
