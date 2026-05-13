@@ -44,17 +44,26 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   manpower,
   selectedMonth 
 }) => {
-  const filteredCandidates = useMemo(() => 
-    selectedMonth === 'All' ? candidates : candidates.filter(c => c.month === selectedMonth)
-  , [candidates, selectedMonth]);
+  const filteredCandidates = useMemo(() => {
+    if (!selectedMonth) return candidates;
+    const selectedDate = new Date(selectedMonth);
+    const monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    return candidates.filter(c => c.month === monthAbbrev);
+  }, [candidates, selectedMonth]);
 
-  const filteredResignations = useMemo(() => 
-    selectedMonth === 'All' ? resignations : resignations.filter(r => r.month === selectedMonth)
-  , [resignations, selectedMonth]);
+  const filteredResignations = useMemo(() => {
+    if (!selectedMonth) return resignations;
+    const selectedDate = new Date(selectedMonth);
+    const monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    return resignations.filter(r => r.month === monthAbbrev);
+  }, [resignations, selectedMonth]);
 
-  const filteredManpower = useMemo(() => 
-    selectedMonth === 'All' ? manpower : manpower.filter(m => m.month === selectedMonth)
-  , [manpower, selectedMonth]);
+  const filteredManpower = useMemo(() => {
+    if (!selectedMonth) return manpower;
+    const selectedDate = new Date(selectedMonth);
+    const monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    return manpower.filter(m => m.month === monthAbbrev);
+  }, [manpower, selectedMonth]);
 
   const stats = useMemo(() => {
     const hired = filteredCandidates.filter(c => c.finalStatus === 'Joined').length;
@@ -91,6 +100,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   }, [candidates, resignations]);
 
   const deptActivityData = useMemo(() => {
+    let monthAbbrev = selectedMonth;
+    if (selectedMonth) {
+      const selectedDate = new Date(selectedMonth);
+      monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    }
+
     const depts = Array.from(new Set([
       ...candidates.map(c => c.department),
       ...resignations.map(r => r.department)
@@ -98,8 +113,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
     return depts.map(dept => ({
       name: dept,
-      Hired: candidates.filter(c => c.department === dept && c.finalStatus === 'Joined' && (selectedMonth === 'All' || c.month === selectedMonth)).length,
-      Resigned: resignations.filter(r => r.department === dept && (selectedMonth === 'All' || r.month === selectedMonth)).length
+      Hired: candidates.filter(c => c.department === dept && c.finalStatus === 'Joined' && (!selectedMonth || c.month === monthAbbrev)).length,
+      Resigned: resignations.filter(r => r.department === dept && (!selectedMonth || r.month === monthAbbrev)).length
     })).sort((a, b) => (b.Hired + b.Resigned) - (a.Hired + a.Resigned)).slice(0, 8);
   }, [candidates, resignations, selectedMonth]);
 

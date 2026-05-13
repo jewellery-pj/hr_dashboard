@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { Candidate, Resignation, ExitInterview, Manpower, JobNetData } from '../data/mockData';
+import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData } from '../data/mockData';
 
 const RECRUITMENT_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=0';
 const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=421155818';
@@ -308,52 +308,70 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
 
 export const fetchJobNetData = (): Promise<JobNetData[]> => {
   return new Promise((resolve, reject) => {
+    console.log('Fetching JobNet data from Google Sheet:', JOBNET_CSV_URL);
     Papa.parse(JOBNET_CSV_URL, {
       download: true,
       header: false,
       complete: (results) => {
         const data = results.data as any[];
+        console.log('Google Sheet raw data rows:', data.length);
         if (data.length < 2) {
+          console.log('Not enough data rows, returning empty');
           resolve([]);
           return;
         }
 
         // Skip header row
         const rows = data.slice(1);
+        console.log('Data rows after skipping header:', rows.length);
+        console.log('First 3 data rows:', rows.slice(0, 3));
 
-        // Column mapping based on the image:
+        // Column mapping based on standard structure:
         // A(0): စဉ် (No)
-        // B(1): အမည် (Name)
-        // C(2): ရာထူး (Position)
-        // D(3): Department
-        // E(4): Ph No.
+        // B(1): Name (အမည်)
+        // C(2): Position (ရာထူး)
+        // D(3): Ph No.
+        // E(4): Department
         // F(5): CV အဝင်ရက်စွဲ (CV Received Date)
         // G(6): First Interview Date
         // H(7): Time
         // I(8): အင်တာဗျူးရမှတ် (Interview Score)
         // J(9): Second Interview Date
         // K(10): Second Interview Time
-        // L(11): Remark
+        // L(11): Second Interview Date (or similar)
+        // M(12): 
+        // N(13): Remark
+        // O(14): Offer
+        // P(15): Joined Date
 
         const jobNetData: JobNetData[] = rows
+          .filter(row => row[1] && row[1].toString().trim() !== '') // Filter out rows without names (column B, index 1)
           .map((row, index) => ({
             id: `jobnet-${index + 1}`,
-            name: row[1] || 'Unknown',
-            position: row[2] || 'Unknown',
-            department: row[3] || 'Unknown',
-            phNo: row[4] || '',
-            cvReceivedDate: row[5] || '',
-            firstInterviewDate: row[6] || '',
+            name: row[2] || 'Unknown',
+            position: row[3] || 'Unknown',
+            department: row[4] || 'Unknown',
+            phNo: row[3] || '',
+            cvReceivedDate: row[1] || '',
+            firstInterviewDate: row[7] || '',
             time: row[7] || '',
             interviewScore: parseNumber(row[8]),
-            secondInterviewDate: row[9] || '',
-            remark: row[11] || '',
+            secondInterviewDate: row[11] || '',
+            remark: row[16] || '',
+            joinedDate: row[15] || '',
+            offer: row[14] || '',
+            မှတ်ချက်: row[13] || '',
+           
           }));
 
+        console.log(`Fetched ${jobNetData.length} records from Google Sheet`);
+        console.log('Sample record:', jobNetData[0]);
         resolve(jobNetData);
       },
       error: (error) => {
-        reject(error);
+        console.warn('Failed to fetch JobNet data from Google Sheets, using mock data:', error);
+        // Fall back to mock data when Google Sheets fails
+        resolve(mockJobNetData);
       }
     });
   });

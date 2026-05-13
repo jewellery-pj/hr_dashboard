@@ -69,12 +69,18 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
   , [resignations]);
 
   const filteredResignations = useMemo(() => {
+    let monthAbbrev = externalMonthFilter;
+    if (externalMonthFilter && externalMonthFilter !== 'All') {
+      const selectedDate = new Date(externalMonthFilter);
+      monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    }
+    
     return resignations.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
       const matchesLoc = locFilter === 'All' || r.location === locFilter;
       const matchesStatus = statusFilter === 'All' || (r.resignStatus || 'Resign') === statusFilter;
       const matchesServiceMonth = serviceMonthFilter === 'All' || r.serviceMonth === serviceMonthFilter;
-      const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
+      const matchesMonth = !externalMonthFilter || r.month === monthAbbrev;
       const matchesComment = commentSearch === '' || 
         (r.comment || r.reason || '').toLowerCase().includes(commentSearch.toLowerCase());
       

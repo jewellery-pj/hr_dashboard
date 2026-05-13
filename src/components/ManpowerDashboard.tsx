@@ -17,9 +17,15 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
   , [manpower]);
 
   const filteredData = useMemo(() => {
+    let monthAbbrev = externalMonthFilter;
+    if (externalMonthFilter && externalMonthFilter !== 'All') {
+      const selectedDate = new Date(externalMonthFilter);
+      monthAbbrev = selectedDate.toLocaleString('en-US', { month: 'short' });
+    }
+    
     return manpower.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
-      const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
+      const matchesMonth = !externalMonthFilter || r.month === monthAbbrev;
       const matchesPos = posSearch === '' || 
         r.position.toLowerCase().includes(posSearch.toLowerCase());
       
