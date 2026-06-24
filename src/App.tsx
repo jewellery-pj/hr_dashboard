@@ -8,9 +8,15 @@ import {
   UserPlus, 
   XCircle,
   Filter,
-  Settings
+  Settings,
+  AlertTriangle,
+  Store,
+  Briefcase,
+  UserCog,
+  Calculator,
+  Crown
 } from 'lucide-react';
-import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower, JobNetData, mockJobNetData } from './data/mockData';
+import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower, JobNetData, mockJobNetData, EmployeeRecord } from './data/mockData';
 import { KpiCard } from './components/KpiCard';
 import { HiringFunnel } from './components/HiringFunnel';
 import { TrendChart } from './components/TrendChart';
@@ -24,7 +30,15 @@ import { ExitInterviewDashboard } from './components/ExitInterviewDashboard';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { JobNetDashboard } from './components/JobNetDashboard';
-import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData, fetchJobNetData } from './services/excelService';
+import { ChairmanSummary } from './components/ChairmanSummary';
+import { RiskAlertCenter } from './components/RiskAlertCenter';
+import { BranchScorecard } from './components/BranchScorecard';
+import { DeptScorecard } from './components/DeptScorecard';
+import { ManagerScorecard } from './components/ManagerScorecard';
+import { ManpowerPlanning } from './components/ManpowerPlanning';
+import { TalentSuccession } from './components/TalentSuccession';
+import { ExitAnalytics } from './components/ExitAnalytics';
+import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData, fetchJobNetData, fetchEmployeeData } from './services/excelService';
 import Login from './components/Login';
 import ChangePassword from './components/ChangePassword';
 import { useAuth } from './context/AuthContext';
@@ -38,10 +52,11 @@ export default function App() {
   const [exitInterviews, setExitInterviews] = useState<ExitInterview[]>([]);
   const [manpower, setManpower] = useState<Manpower[]>([]);
   const [jobNetData, setJobNetData] = useState<JobNetData[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
-  const [activeTab, setActiveTab] = useState<'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower' | 'jobnet'>('overview');
+  const [activeTab, setActiveTab] = useState<'chairman' | 'riskalerts' | 'branch' | 'dept' | 'manager' | 'planning' | 'talent' | 'exitanalytics' | 'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower' | 'jobnet'>('chairman');
   const [showChangePassword, setShowChangePassword] = useState(false);
 
   const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
@@ -52,12 +67,13 @@ export default function App() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [excelData, resData, exitData, mpData, jnData] = await Promise.all([
+        const [excelData, resData, exitData, mpData, jnData, empData] = await Promise.all([
           fetchExcelData(),
           fetchResignationData(),
           fetchExitInterviewData(),
           fetchManpowerData(),
-          fetchJobNetData()
+          fetchJobNetData(),
+          fetchEmployeeData()
         ]);
 
         if (excelData && excelData.length > 0) {
@@ -81,6 +97,9 @@ export default function App() {
           // Use mock data directly as fallback
           console.log('Using mockJobNetData directly');
           setJobNetData(mockJobNetData);
+        }
+        if (empData && empData.length > 0) {
+          setEmployees(empData);
         }
       } catch (err) {
         console.error('Failed to fetch Excel data:', err);
@@ -129,6 +148,21 @@ export default function App() {
     if (selectedMonth === 'All') return candidates;
     return candidates.filter(c => c.month === selectedMonth);
   }, [candidates, selectedMonth]);
+
+  const filteredResignations = useMemo(() => {
+    if (selectedMonth === 'All') return resignations;
+    return resignations.filter(r => r.month === selectedMonth);
+  }, [resignations, selectedMonth]);
+
+  const filteredExitInterviews = useMemo(() => {
+    if (selectedMonth === 'All') return exitInterviews;
+    return exitInterviews.filter(e => e.month === selectedMonth);
+  }, [exitInterviews, selectedMonth]);
+
+  const filteredManpower = useMemo(() => {
+    if (selectedMonth === 'All') return manpower;
+    return manpower.filter(m => m.month === selectedMonth);
+  }, [manpower, selectedMonth]);
 
   const stats = useMemo(() => {
     const totalCV = filteredCandidates.length;
@@ -191,7 +225,15 @@ export default function App() {
               </div>
               <div>
                 <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-                  {activeTab === 'overview' ? 'Executive Overview' :
+                  {activeTab === 'chairman' ? 'Chairman Executive Summary' :
+                   activeTab === 'riskalerts' ? 'HR Risk Alert Center' :
+                   activeTab === 'branch' ? 'Branch Performance Scorecard' :
+                   activeTab === 'dept' ? 'Department Performance Scorecard' :
+                   activeTab === 'manager' ? 'Manager Leadership Scorecard' :
+                   activeTab === 'planning' ? 'Manpower Planning Dashboard' :
+                   activeTab === 'talent' ? 'Talent & Succession Dashboard' :
+                   activeTab === 'exitanalytics' ? 'Exit Interview Analytics' :
+                   activeTab === 'overview' ? 'Executive Overview' :
                    activeTab === 'recruitment' ? 'Recruitment Overview' :
                    activeTab === 'resignation' ? 'Resignation Analysis' :
                    activeTab === 'exit' ? 'Exit Interview Insights' :
@@ -251,6 +293,94 @@ export default function App() {
 
           {/* Tabs */}
           <div className="flex flex-wrap items-center gap-2 p-1 bg-slate-100 rounded-xl w-fit">
+            <button
+              onClick={() => setActiveTab('chairman')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'chairman'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Chairman Summary
+            </button>
+            <button
+              onClick={() => setActiveTab('riskalerts')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'riskalerts'
+                ? 'bg-white text-rose-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4" />
+              Risk Alerts
+            </button>
+            <button
+              onClick={() => setActiveTab('branch')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'branch'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Store className="w-4 h-4" />
+              Branch Scorecard
+            </button>
+            <button
+              onClick={() => setActiveTab('dept')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'dept'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Briefcase className="w-4 h-4" />
+              Dept Scorecard
+            </button>
+            <button
+              onClick={() => setActiveTab('manager')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'manager'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <UserCog className="w-4 h-4" />
+              Manager Scorecard
+            </button>
+            <button
+              onClick={() => setActiveTab('planning')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'planning'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Calculator className="w-4 h-4" />
+              Manpower Planning
+            </button>
+            <button
+              onClick={() => setActiveTab('talent')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'talent'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Crown className="w-4 h-4" />
+              Talent & Succession
+            </button>
+            <button
+              onClick={() => setActiveTab('exitanalytics')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'exitanalytics'
+                ? 'bg-white text-indigo-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <LogOut className="w-4 h-4" />
+              Exit Analytics
+            </button>
             <button
               onClick={() => setActiveTab('overview')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -320,12 +450,28 @@ export default function App() {
           </div>
         </header>
 
-        {activeTab === 'overview' ? (
+        {activeTab === 'chairman' ? (
+          <ChairmanSummary candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} />
+        ) : activeTab === 'riskalerts' ? (
+          <RiskAlertCenter candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} />
+        ) : activeTab === 'branch' ? (
+          <BranchScorecard resignations={filteredResignations} manpower={filteredManpower} />
+        ) : activeTab === 'dept' ? (
+          <DeptScorecard />
+        ) : activeTab === 'manager' ? (
+          <ManagerScorecard resignations={filteredResignations} manpower={filteredManpower} />
+        ) : activeTab === 'planning' ? (
+          <ManpowerPlanning manpower={filteredManpower} />
+        ) : activeTab === 'talent' ? (
+          <TalentSuccession employees={employees} manpower={filteredManpower} />
+        ) : activeTab === 'exitanalytics' ? (
+          <ExitAnalytics exitInterviews={filteredExitInterviews} />
+        ) : activeTab === 'overview' ? (
           <OverviewDashboard 
-            candidates={candidates} 
-            resignations={resignations} 
-            exitInterviews={exitInterviews} 
-            manpower={manpower}
+            candidates={filteredCandidates} 
+            resignations={filteredResignations} 
+            exitInterviews={filteredExitInterviews} 
+            manpower={filteredManpower}
             selectedMonth={selectedMonth}
           />
         ) : activeTab === 'recruitment' ? (
@@ -416,11 +562,11 @@ export default function App() {
             </div> */}
           </>
         ) : activeTab === 'resignation' ? (
-          <ResignationDashboard resignations={resignations} externalMonthFilter={selectedMonth} />
+          <ResignationDashboard resignations={filteredResignations} externalMonthFilter={selectedMonth} />
         ) : activeTab === 'exit' ? (
-          <ExitInterviewDashboard exitInterviews={exitInterviews} externalMonthFilter={selectedMonth} />
+          <ExitInterviewDashboard exitInterviews={filteredExitInterviews} externalMonthFilter={selectedMonth} />
         ) : activeTab === 'manpower' ? (
-          <ManpowerDashboard manpower={manpower} externalMonthFilter={selectedMonth} />
+          <ManpowerDashboard manpower={filteredManpower} externalMonthFilter={selectedMonth} />
         ) : (
           <JobNetDashboard jobNetData={jobNetData} externalMonthFilter={selectedMonth} />
         )}

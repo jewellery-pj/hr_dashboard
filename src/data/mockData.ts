@@ -48,6 +48,15 @@ export interface ExitInterview {
   month: string;
 }
 
+export interface EmployeeRecord {
+  id: string;
+  name: string;
+  position: string;
+  department: string;
+  branch?: string;
+  shopLocation?: string;
+}
+
 export interface Manpower {
   id: string;
   department: string;

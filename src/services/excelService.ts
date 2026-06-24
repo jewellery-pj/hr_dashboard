@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData } from '../data/mockData';
+import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData, EmployeeRecord } from '../data/mockData';
 
 const RECRUITMENT_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=0';
 const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=421155818';
@@ -372,6 +372,51 @@ export const fetchJobNetData = (): Promise<JobNetData[]> => {
         console.warn('Failed to fetch JobNet data from Google Sheets, using mock data:', error);
         // Fall back to mock data when Google Sheets fails
         resolve(mockJobNetData);
+      }
+    });
+  });
+};
+
+export const fetchEmployeeData = (): Promise<EmployeeRecord[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(MANPOWER_CSV_URL, {
+      download: true,
+      header: false,
+      complete: (results) => {
+        const data = results.data as any[];
+        if (data.length < 2) {
+          resolve([]);
+          return;
+        }
+
+        const rows = data.slice(1);
+        const employees: EmployeeRecord[] = [];
+
+        for (const row of rows) {
+          if (!row || row.length < 5) continue;
+          const name = (row[2] || '').toString().trim();
+          const position = (row[3] || '').toString().trim();
+          const department = (row[4] || '').toString().trim();
+          const branch = (row[6] || '').toString().trim() || undefined;
+          const shopLocation = (row[7] || '').toString().trim() || undefined;
+
+          if (!name || !position || !department) continue;
+          if (name.toLowerCase() === 'total' || name.toLowerCase().includes('grand total')) continue;
+
+          employees.push({
+            id: `EMP-${employees.length + 1}`,
+            name,
+            position,
+            department,
+            branch,
+            shopLocation,
+          });
+        }
+
+        resolve(employees);
+      },
+      error: (error) => {
+        reject(error);
       }
     });
   });
