@@ -2,15 +2,27 @@ import React, { useMemo, useState } from 'react';
 import {
   LogOut,
   AlertTriangle,
-  Users,
-  TrendingDown,
-  PieChart,
+  Building2,
   MessageSquare,
   UserCog,
-  Building2,
+  ChevronDown,
   ChevronUp,
+  Siren,
+  DollarSign,
 } from 'lucide-react';
 import { ExitInterview } from '../data/mockData';
+import {
+  getExecutiveReasonCategory,
+  normalizeExitReason,
+  REASON_COLORS,
+  SALARY_HIGH_THRESHOLD,
+  SUPERVISOR_HIGH_THRESHOLD,
+  CAREER_GROWTH_THRESHOLD,
+} from '../utils/exitReasons';
+import { buildExitReasonOffTarget } from '../utils/offTarget';
+import { OffTargetPanel } from './OffTargetPanel';
+
+export { normalizeExitReason };
 
 interface ExitAnalyticsProps {
   exitInterviews: ExitInterview[];
@@ -25,60 +37,22 @@ interface ReasonData {
 interface DeptData {
   department: string;
   count: number;
+  pctOfTotal: number;
   topReason: string;
   reasons: Record<string, number>;
 }
 
-function normalizeReason(reason: string): string {
-  const lower = reason.toLowerCase().trim();
-  if (!lower || lower === 'unknown') return 'Other';
-
-  // English keywords
-  if (lower.includes('salary') || lower.includes('compensation') || lower.includes('pay')) return 'Salary';
-  if (lower.includes('family') || lower.includes('personal') || lower.includes('home')) return 'Family/Personal';
-  if (lower.includes('supervisor') || lower.includes('manager') || lower.includes('boss')) return 'Supervisor Issue';
-  if (lower.includes('career') || lower.includes('growth') || lower.includes('promotion')) return 'Career Growth';
-  if (lower.includes('health') || lower.includes('medical')) return 'Health';
-  if (lower.includes('relocate') || lower.includes('location') || lower.includes('distance')) return 'Relocation';
-  if (lower.includes('better') || lower.includes('opportunity') || lower.includes('new job')) return 'Better Opportunity';
-  if (lower.includes('work environment') || lower.includes('culture')) return 'Work Environment';
-
-  // Burmese keywords
-  if (reason.includes('လစာ') || reason.includes('ကြေး') || reason.includes('ရှာ')) return 'Salary';
-  if (reason.includes('မိသားစု') || reason.includes('ကိုယ်ပိုင်') || reason.includes('အိမ်') || reason.includes('ပုဂ္ဂလ')) return 'Family/Personal';
-  if (reason.includes('ကြီးကြပ်') || reason.includes('မန်နေဂျာ') || reason.includes('သူဌေး')) return 'Supervisor Issue';
-  if (reason.includes('အခွင့်အလမ်း') || reason.includes('တိုးတက်') || reason.includes('ရာထူး')) return 'Career Growth';
-  if (reason.includes('ကျန်းမာ') || reason.includes('ဆေး')) return 'Health';
-  if (reason.includes('ပြောင်း') || reason.includes('နေရာ')) return 'Relocation';
-  if (reason.includes('အလုပ်သစ်') || reason.includes('ကောင်းကောင်း')) return 'Better Opportunity';
-  if (reason.includes('ပတ်ဝန်းကျင်') || reason.includes('ယဉ်ကျေးမှု')) return 'Work Environment';
-
-  return reason.trim() || 'Other';
-}
-
-const reasonColors: Record<string, string> = {
-  'Salary': 'bg-rose-500',
-  'Family/Personal': 'bg-amber-500',
-  'Supervisor Issue': 'bg-purple-500',
-  'Career Growth': 'bg-blue-500',
-  'Health': 'bg-teal-500',
-  'Relocation': 'bg-indigo-500',
-  'Better Opportunity': 'bg-emerald-500',
-  'Work Environment': 'bg-pink-500',
-  'Other': 'bg-slate-400',
-};
+const reasonColors = REASON_COLORS;
 
 export const ExitAnalytics: React.FC<ExitAnalyticsProps> = ({ exitInterviews }) => {
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
-  const [selectedDept, setSelectedDept] = useState<string | null>(null);
+  const [expandedDept, setExpandedDept] = useState<string | null>(null);
+  const [expandedReason, setExpandedReason] = useState<string | null>(null);
+
   const reasonBreakdown = useMemo<ReasonData[]>(() => {
     if (exitInterviews.length === 0) return [];
 
     const reasonMap = exitInterviews.reduce((acc, e) => {
-      const rawReason = [e.reason, e.requestReason, e.hrReason].find(
-        r => r && r.trim() && r.trim().toLowerCase() !== 'unknown'
-      ) || 'Other';
-      const reason = normalizeReason(rawReason);
+      const reason = getExecutiveReasonCategory(e);
       acc[reason] = (acc[reason] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
@@ -98,22 +72,21 @@ export const ExitAnalytics: React.FC<ExitAnalyticsProps> = ({ exitInterviews }) 
 
     const deptMap = exitInterviews.reduce((acc, e) => {
       const dept = e.department || 'Unknown';
-      const rawReason = [e.reason, e.requestReason, e.hrReason].find(
-        r => r && r.trim() && r.trim().toLowerCase() !== 'unknown'
-      ) || 'Other';
-      const reason = normalizeReason(rawReason);
+      const reason = getExecutiveReasonCategory(e);
       if (!acc[dept]) acc[dept] = { count: 0, reasons: {} };
       acc[dept].count++;
       acc[dept].reasons[reason] = (acc[dept].reasons[reason] || 0) + 1;
       return acc;
     }, {} as Record<string, { count: number; reasons: Record<string, number> }>);
 
+    const total = exitInterviews.length;
     return (Object.entries(deptMap) as [string, { count: number; reasons: Record<string, number> }][])
       .map(([dept, data]) => {
         const topReason = Object.entries(data.reasons).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
         return {
           department: dept,
           count: data.count,
+          pctOfTotal: (data.count / total) * 100,
           topReason,
           reasons: data.reasons,
         };
@@ -122,283 +95,306 @@ export const ExitAnalytics: React.FC<ExitAnalyticsProps> = ({ exitInterviews }) 
   }, [exitInterviews]);
 
   const totalExits = exitInterviews.length;
-  const topReason = reasonBreakdown[0]?.reason || 'N/A';
-  const topReasonPct = reasonBreakdown[0]?.pct || 0;
-  const topDept = deptBreakdown[0]?.department || 'N/A';
-  const salaryExits = reasonBreakdown.find(r => r.reason === 'Salary')?.count || 0;
-  const supervisorExits = reasonBreakdown.find(r => r.reason === 'Supervisor Issue')?.count || 0;
+  const salaryData = reasonBreakdown.find(r => r.reason === 'Salary');
+  const supervisorData = reasonBreakdown.find(r => r.reason === 'Supervisor Issue');
+  const careerData = reasonBreakdown.find(r => r.reason === 'Career Growth');
 
-  return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-slate-900 via-orange-900 to-slate-800 rounded-3xl p-8 md:p-10 text-white shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-orange-500/30 backdrop-blur rounded-xl flex items-center justify-center">
-                <LogOut className="w-5 h-5 text-orange-300" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-widest text-orange-300/70">Exit Insights</span>
-            </div>
-            <h2 className="text-2xl md:text-3xl font-black tracking-tight">Exit Interview Analytics</h2>
-          </div>
-          <div className="flex items-center gap-5">
-            <div className="flex flex-col items-center px-6 py-4 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Total Exits</span>
-              <span className="text-3xl font-black">{totalExits}</span>
-            </div>
-            <div className="flex flex-col items-center px-6 py-4 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Top Reason</span>
-              <span className="text-xl font-black text-orange-300">{topReason}</span>
-              <span className="text-xs font-bold text-white/70 mt-1">{topReasonPct.toFixed(0)}%</span>
-            </div>
+  const salaryPct = salaryData?.pct || 0;
+  const supervisorPct = supervisorData?.pct || 0;
+  const careerPct = careerData?.pct || 0;
+
+  const offTargetReasons = useMemo(
+    () => buildExitReasonOffTarget(reasonBreakdown),
+    [reasonBreakdown],
+  );
+
+  const renderReasonDetail = (reason: string) => {
+    const records = exitInterviews.filter(e => getExecutiveReasonCategory(e) === reason);
+    return (
+      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+        <table className="w-full">
+          <thead className="sticky top-0">
+            <tr className="bg-slate-50/90">
+              <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee</th>
+              <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
+              <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.slice(0, 30).map((e, i) => (
+              <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-white/60' : ''}`}>
+                <td className="px-4 py-2 text-sm font-bold text-slate-700">{e.name || 'Unknown'}</td>
+                <td className="px-4 py-2 text-sm text-slate-600">{e.department || 'Unknown'}</td>
+                <td className="px-4 py-2 text-sm text-slate-500">{e.resignationDate || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {records.length > 30 && (
+          <p className="text-xs text-slate-400 text-center py-2">Showing 30 of {records.length}</p>
+        )}
+      </div>
+    );
+  };
+
+  const renderDeptDetail = (dept: DeptData) => {
+    const sortedReasons = Object.entries(dept.reasons).sort((a, b) => b[1] - a[1]);
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Reason Breakdown</p>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-400 uppercase">Reason</th>
+                <th className="px-3 py-2 text-right text-[10px] font-bold text-slate-400 uppercase">Count</th>
+                <th className="px-3 py-2 text-right text-[10px] font-bold text-slate-400 uppercase">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedReasons.map(([reason, count], i) => (
+                <tr key={reason} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-white/60' : ''}`}>
+                  <td className={`px-3 py-2 text-sm font-bold ${reasonColors[reason] || 'text-slate-600'}`}>{reason}</td>
+                  <td className="px-3 py-2 text-right text-sm font-black tabular-nums">{count}</td>
+                  <td className="px-3 py-2 text-right text-sm font-bold tabular-nums text-slate-600">
+                    {((count / dept.count) * 100).toFixed(0)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Recent Exits</p>
+          <div className="overflow-x-auto max-h-48 overflow-y-auto">
+            <table className="w-full">
+              <thead className="sticky top-0">
+                <tr className="bg-slate-50/90">
+                  <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-400 uppercase">Employee</th>
+                  <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-400 uppercase">Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exitInterviews
+                  .filter(e => (e.department || 'Unknown') === dept.department)
+                  .slice(0, 15)
+                  .map((e, i) => (
+                    <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-white/60' : ''}`}>
+                      <td className="px-3 py-2 text-sm font-bold text-slate-700">{e.name || 'Unknown'}</td>
+                      <td className="px-3 py-2 text-sm text-slate-600">{getExecutiveReasonCategory(e)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
+    );
+  };
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-orange-50 rounded-xl flex items-center justify-center"><LogOut className="w-4 h-4 text-orange-600" /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Exits</span>
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="bg-gradient-to-br from-slate-900 via-orange-900 to-slate-800 rounded-2xl p-6 md:p-8 text-white shadow-xl">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-2">Retention Insights</p>
+            <h2 className="text-xl md:text-2xl font-black tracking-tight">Exit Interview Analytics</h2>
+            <p className="text-sm text-white/60 mt-2">
+              {totalExits} exit interviews · live data
+            </p>
           </div>
-          <p className="text-2xl font-black text-slate-900 tabular-nums">{totalExits}</p>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-rose-50 rounded-xl flex items-center justify-center"><TrendingDown className="w-4 h-4 text-rose-600" /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Salary Exits</span>
+          <div className="grid grid-cols-3 gap-2 flex-shrink-0">
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black">{totalExits}</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Total Exits</p>
+            </div>
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black text-rose-300">{salaryPct.toFixed(0)}%</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Salary</p>
+            </div>
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black text-purple-300">{supervisorPct.toFixed(0)}%</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Supervisor</p>
+            </div>
           </div>
-          <p className="text-2xl font-black text-rose-600 tabular-nums">{salaryExits}</p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-purple-600" /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Supervisor Issues</span>
+        {offTargetReasons.length > 0 && (
+          <div className="mt-5 flex items-center gap-3 px-4 py-3 bg-rose-500/25 rounded-xl border border-rose-400/30">
+            <Siren className="w-4 h-4 text-rose-200 flex-shrink-0 animate-pulse" />
+            <p className="text-sm font-bold text-rose-100">
+              {offTargetReasons.length} reason(s) over threshold — {offTargetReasons[0].metric}: {offTargetReasons[0].now} ({offTargetReasons[0].gap})
+            </p>
           </div>
-          <p className="text-2xl font-black text-purple-600 tabular-nums">{supervisorExits}</p>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center"><Building2 className="w-4 h-4 text-indigo-600" /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Top Department</span>
-          </div>
-          <p className="text-lg font-black text-slate-900 truncate">{topDept}</p>
-        </div>
+        )}
       </div>
 
       {totalExits === 0 ? (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-16 text-center">
-          <PieChart className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-lg font-bold text-slate-700">No Exit Interview Data Available</p>
-          <p className="text-sm text-slate-400 mt-2">Data will appear once exit interview records are loaded.</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+          <LogOut className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="text-base font-bold text-slate-700">No Exit Interview Data Available</p>
+          <p className="text-sm text-slate-400 mt-1">Data will appear once exit interview records are loaded.</p>
         </div>
       ) : (
         <>
-          {/* Reason Breakdown */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-8 py-6 border-b border-slate-100 flex items-center gap-3">
-              <div className="w-2 h-7 bg-orange-500 rounded-full" />
-              <div>
-                <h3 className="text-xl font-bold text-slate-800">Exit Reasons Breakdown</h3>
-                <p className="text-slate-500 text-sm mt-0.5">Why employees are leaving — computed from exit interview data</p>
-              </div>
-            </div>
-            <div className="p-8 space-y-4">
-              {reasonBreakdown.map((item) => {
-                const color = reasonColors[item.reason] || 'bg-slate-400';
-                const isActive = selectedReason === item.reason;
-                return (
-                  <div key={item.reason} onClick={() => setSelectedReason(isActive ? null : item.reason)} className={`flex items-center gap-4 cursor-pointer rounded-xl p-2 transition-all ${isActive ? 'ring-2 ring-indigo-200 bg-slate-50' : 'hover:bg-slate-50/50'}`}>
-                    <div className="w-40 flex-shrink-0">
-                      <span className="text-sm font-bold text-slate-700">{item.reason}</span>
-                    </div>
-                    <div className="flex-1 h-8 bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
-                      <div
-                        className={`h-full ${color} rounded-xl transition-all duration-1000 flex items-center justify-end px-3`}
-                        style={{ width: `${Math.max(item.pct, 3)}%` }}
-                      >
-                        <span className="text-xs font-black text-white tabular-nums">{item.pct.toFixed(0)}%</span>
-                      </div>
-                    </div>
-                    <div className="w-16 text-right flex-shrink-0">
-                      <span className="text-base font-black text-slate-900 tabular-nums">{item.count}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Department-wise Breakdown */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-8 py-6 border-b border-slate-100 flex items-center gap-3">
-              <div className="w-2 h-7 bg-indigo-500 rounded-full" />
-              <div>
-                <h3 className="text-xl font-bold text-slate-800">Department-wise Exit Breakdown</h3>
-                <p className="text-slate-500 text-sm mt-0.5">Exit count and top reason per department</p>
-              </div>
+          {/* Chairman Table — Reason | Count | % */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+              <h3 className="text-base font-bold text-slate-800">Exit Reason Summary</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Click a row for employee detail</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-slate-50/50">
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
-                    <th className="px-6 py-4 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Exit Count</th>
-                    <th className="px-6 py-4 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">% of Total</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Top Reason</th>
-                    <th className="px-6 py-4 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Reason Distribution</th>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Reason</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Count</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">%</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {deptBreakdown.map((dept, idx) => {
-                    const pct = (dept.count / totalExits) * 100;
-                    const topColor = reasonColors[dept.topReason] || 'bg-slate-400';
-                    const isActive = selectedDept === dept.department;
+                  {reasonBreakdown.map((item) => {
+                    const isHighRisk =
+                      (item.reason === 'Salary' && item.pct >= SALARY_HIGH_THRESHOLD) ||
+                      (item.reason === 'Supervisor Issue' && item.pct >= SUPERVISOR_HIGH_THRESHOLD) ||
+                      (item.reason === 'Career Growth' && item.pct >= CAREER_GROWTH_THRESHOLD);
+                    const isExpanded = expandedReason === item.reason;
                     return (
-                      <tr key={dept.department} onClick={() => setSelectedDept(isActive ? null : dept.department)} className={`border-t border-slate-100 transition-colors cursor-pointer ${isActive ? 'ring-2 ring-indigo-200 ' : ''}hover:bg-slate-50/50 ${idx % 2 === 1 ? 'bg-slate-50/20' : ''}`}>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-50 border border-slate-100">
-                              <Building2 className="w-4 h-4 text-slate-400" />
+                      <React.Fragment key={item.reason}>
+                        <tr
+                          className={`border-t border-slate-100 cursor-pointer transition-colors ${isHighRisk ? 'bg-rose-50/30' : 'hover:bg-slate-50/80'} ${isExpanded ? 'ring-1 ring-inset ring-indigo-200' : ''}`}
+                          onClick={() => setExpandedReason(isExpanded ? null : item.reason)}
+                        >
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-3">
+                              {isHighRisk && <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />}
+                              <span className={`text-sm font-bold ${reasonColors[item.reason] || 'text-slate-700'}`}>
+                                {item.reason}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-indigo-400 ml-auto" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />
+                              )}
                             </div>
-                            <span className="font-bold text-slate-800 text-sm">{dept.department}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-right">
-                          <span className="text-lg font-black text-slate-900 tabular-nums">{dept.count}</span>
-                        </td>
-                        <td className="px-6 py-5 text-center">
-                          <span className="text-sm font-bold text-slate-600 tabular-nums">{pct.toFixed(1)}%</span>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100">
-                            <span className={`w-2 h-2 rounded-full ${topColor}`} />
-                            <span className="text-sm font-bold text-slate-700">{dept.topReason}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {(Object.entries(dept.reasons) as [string, number][])
-                              .sort((a, b) => b[1] - a[1])
-                              .map(([reason, count]) => (
-                                <span
-                                  key={reason}
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-100"
-                                >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${reasonColors[reason] || 'bg-slate-400'}`} />
-                                  {reason}: {count}
-                                </span>
-                              ))}
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <span className="text-sm font-black text-slate-900 tabular-nums">{item.count}</span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <span className="text-sm font-black tabular-nums text-slate-700">{item.pct.toFixed(0)}%</span>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-50/40">
+                            <td colSpan={3} className="px-6 py-4 border-t border-indigo-100">
+                              {renderReasonDetail(item.reason)}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Department Wise Breakdown */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-indigo-500" />
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Department Wise Breakdown</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Exit count and top reason per department</p>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Exits</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">% of Total</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Top Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptBreakdown.map((dept) => {
+                    const isExpanded = expandedDept === dept.department;
+                    const topIsRisk =
+                      (dept.topReason === 'Salary' && salaryPct >= SALARY_HIGH_THRESHOLD) ||
+                      dept.topReason === 'Supervisor Issue' ||
+                      dept.topReason === 'Career Growth';
+                    return (
+                      <React.Fragment key={dept.department}>
+                        <tr
+                          className={`border-t border-slate-100 cursor-pointer transition-colors hover:bg-slate-50/80 ${isExpanded ? 'ring-1 ring-inset ring-indigo-200' : ''}`}
+                          onClick={() => setExpandedDept(isExpanded ? null : dept.department)}
+                        >
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-3">
+                              <Building2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              <span className="text-sm font-bold text-slate-800">{dept.department}</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-indigo-400 ml-auto" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <span className="text-sm font-black text-slate-900 tabular-nums">{dept.count}</span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <span className="text-sm font-bold tabular-nums text-slate-600">{dept.pctOfTotal.toFixed(0)}%</span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-2">
+                              {topIsRisk && <span className="w-2 h-2 rounded-full bg-rose-500 flex-shrink-0" />}
+                              <span className={`text-sm font-bold ${reasonColors[dept.topReason] || 'text-slate-700'}`}>
+                                {dept.topReason}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-50/40">
+                            <td colSpan={4} className="px-6 py-4 border-t border-indigo-100">
+                              {renderDeptDetail(dept)}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </>
       )}
 
-      {/* Detail Section */}
-      {(selectedReason || selectedDept) && (() => {
-        const reason = selectedReason;
-        const dept = selectedDept;
-        const filtered = exitInterviews.filter(e => {
-          if (reason && dept) {
-            const eDept = e.department || 'Unknown';
-            if (eDept !== dept) return false;
-            const rawReason = [e.reason, e.requestReason, e.hrReason].find(r => r && r.trim() && r.trim().toLowerCase() !== 'unknown') || 'Other';
-            return normalizeReason(rawReason) === reason;
-          }
-          if (reason) {
-            const rawReason = [e.reason, e.requestReason, e.hrReason].find(r => r && r.trim() && r.trim().toLowerCase() !== 'unknown') || 'Other';
-            return normalizeReason(rawReason) === reason;
-          }
-          if (dept) return (e.department || 'Unknown') === dept;
-          return false;
-        });
-        const title = reason ? `Reason: ${reason}` : `Department: ${dept}`;
-        return (
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-7 bg-orange-500 rounded-full" />
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">{title} — Detail Breakdown</h3>
-                  <p className="text-slate-500 text-sm mt-0.5">{filtered.length} exit interview record{filtered.length !== 1 ? 's' : ''}</p>
-                </div>
-              </div>
-              <button onClick={() => { setSelectedReason(null); setSelectedDept(null); }} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                <ChevronUp className="w-4 h-4" />Close
-              </button>
-            </div>
-            <div className="p-6">
-              {filtered.length > 0 ? (
-                <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                  <table className="w-full">
-                    <thead className="sticky top-0"><tr className="bg-slate-50/80">
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Reason</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date</th>
-                    </tr></thead>
-                    <tbody>
-                      {filtered.slice(0, 50).map((e, i) => {
-                        const rawReason = [e.reason, e.requestReason, e.hrReason].find(r => r && r.trim() && r.trim().toLowerCase() !== 'unknown') || 'Other';
-                        const normalized = normalizeReason(rawReason);
-                        return (
-                          <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                            <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-orange-100 flex items-center justify-center text-[10px] font-bold text-orange-600">{(e.name || e.employeeName || '?').charAt(0)}</div><span className="text-sm font-bold text-slate-700">{e.name || e.employeeName || 'Unknown'}</span></div></td>
-                            <td className="px-4 py-3 text-sm text-slate-600">{e.department || 'Unknown'}</td>
-                            <td className="px-4 py-3"><div className="inline-flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${reasonColors[normalized] || 'bg-slate-400'}`} /><span className="text-sm font-bold text-slate-700">{normalized}</span></div></td>
-                            <td className="px-4 py-3 text-sm text-slate-500">{e.resignationDate || e.date || '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {filtered.length > 50 && <p className="text-xs text-slate-400 text-center py-3">Showing 50 of {filtered.length}</p>}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400 text-center py-8">No records found.</p>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {totalExits > 0 && (
+        <OffTargetPanel
+          title="Exit Reasons Over Threshold"
+          rows={offTargetReasons}
+          showEntity={false}
+          emptyLabel={`Salary ${salaryPct.toFixed(0)}% · Supervisor ${supervisorPct.toFixed(0)}% · Career ${careerPct.toFixed(0)}% — within ${SALARY_HIGH_THRESHOLD}% / ${SUPERVISOR_HIGH_THRESHOLD}% / ${CAREER_GROWTH_THRESHOLD}%`}
+        />
+      )}
 
       {/* Ownership */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-2 h-7 bg-orange-500 rounded-full" />
-          <h3 className="text-xl font-bold text-slate-800">Ownership</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="flex items-center gap-4 p-6 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center">
-              <MessageSquare className="w-6 h-6 text-orange-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Primary</p>
-              <p className="text-lg font-bold text-slate-800">HR Employee Relations Team</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Exit interview & analysis</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 p-6 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center">
-              <UserCog className="w-6 h-6 text-orange-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Co-Owner</p>
-              <p className="text-lg font-bold text-slate-800">Department Heads</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Department-level retention action</p>
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-2 px-2 text-xs text-slate-500">
+        <span className="flex items-center gap-1.5">
+          <MessageSquare className="w-3.5 h-3.5" />
+          <strong className="text-slate-700">Primary:</strong> HR Employee Relations Team
+        </span>
+        <span className="flex items-center gap-1.5">
+          <UserCog className="w-3.5 h-3.5" />
+          <strong className="text-slate-700">Co-Owner:</strong> Department Heads
+        </span>
       </div>
     </div>
   );

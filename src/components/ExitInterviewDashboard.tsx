@@ -1,33 +1,59 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ExitInterview } from '../data/mockData';
-import { MessageSquare, Filter, Search, Info } from 'lucide-react';
+import { normalizeDateForCompare } from '../utils/dateUtils';
+import {
+  getEmployeeReasonCategory,
+  getExecutiveReasonCategory,
+  getHrReasonCategory,
+  hasReasonMismatch,
+  REASON_COLORS,
+  SALARY_HIGH_THRESHOLD,
+  SUPERVISOR_HIGH_THRESHOLD,
+  CAREER_GROWTH_THRESHOLD,
+} from '../utils/exitReasons';
+import { MessageSquare, Search, Info, UserCog, AlertTriangle, Siren, ChevronDown, ChevronUp } from 'lucide-react';
+import { buildExitReasonOffTarget } from '../utils/offTarget';
+import { OffTargetPanel } from './OffTargetPanel';
+import {
+  OperationalShell,
+  OperationalHeader,
+  OperationalSection,
+  OperationalFilters,
+  FilterField,
+  filterSelectClass,
+  filterInputClass,
+  OperationalOwnership,
+  OperationalTableWrap,
+  OperationalTable,
+  OperationalThead,
+  OperationalTh,
+  OperationalAlert,
+} from './OperationalLayout';
 
 interface ExitInterviewDashboardProps {
   exitInterviews: ExitInterview[];
   externalMonthFilter?: string;
 }
 
-const COLORS = [
-  '#6366f1', '#f43f5e', '#f59e0b', '#10b981', '#8b5cf6', 
-  '#ec4899', '#06b6d4', '#4f46e5', '#ef4444', '#f97316', 
-  '#14b8a6', '#3b82f6', '#d946ef', '#84cc16'
-];
-
-export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ exitInterviews, externalMonthFilter = 'All' }) => {
+export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({
+  exitInterviews,
+  externalMonthFilter = 'All',
+}) => {
   const [deptFilter, setDeptFilter] = useState<string>('All');
   const [reasonSearch, setReasonSearch] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
   const [selectedInterview, setSelectedInterview] = useState<ExitInterview | null>(null);
   const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
+  const [expandedReason, setExpandedReason] = useState<string | null>(null);
+  const [showMismatchOnly, setShowMismatchOnly] = useState(false);
 
-  const departments = useMemo(() => 
-    ['All', ...Array.from(new Set(exitInterviews.map(r => r.department)))].sort()
-  , [exitInterviews]);
+  const departments = useMemo(() =>
+    ['All', ...Array.from(new Set(exitInterviews.map(r => r.department)))].sort(),
+  [exitInterviews]);
 
-  const actualDepartments = useMemo(() => 
-    Array.from(new Set(exitInterviews.map(r => r.department))).sort()
-  , [exitInterviews]);
+  const actualDepartments = useMemo(() =>
+    Array.from(new Set(exitInterviews.map(r => r.department))).sort(),
+  [exitInterviews]);
 
   React.useEffect(() => {
     if (actualDepartments.length > 0 && !selectedDeptForPositions) {
@@ -35,459 +61,412 @@ export const ExitInterviewDashboard: React.FC<ExitInterviewDashboardProps> = ({ 
     }
   }, [actualDepartments, selectedDeptForPositions]);
 
-  const positionsByDept = useMemo(() => {
-    if (!selectedDeptForPositions) return [];
-    const filtered = exitInterviews.filter(r => r.department === selectedDeptForPositions);
-    const counts = filtered.reduce((acc, r) => {
-      acc[r.position] = (acc[r.position] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count: Number(count) }))
-      .sort((a, b) => b.count - a.count);
-  }, [exitInterviews, selectedDeptForPositions]);
-
-  const totalStaffInDept = useMemo(() => {
-    return exitInterviews.filter(r => r.department === selectedDeptForPositions).length;
-  }, [exitInterviews, selectedDeptForPositions]);
-
   const filteredData = useMemo(() => {
     return exitInterviews.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
       const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
-      
-      let matchesDate = true;
-      if (dateFilter && r.resignationDate) {
-        const normalizeDate = (dateStr: string) => {
-          if (dateStr.includes('.')) {
-            const parts = dateStr.split('.');
-            if (parts.length === 3) {
-              const day = parts[0].padStart(2, '0');
-              const month = parts[1].padStart(2, '0');
-              const year = parts[2];
-              return `${year}-${month}-${day}`;
-            }
-          }
-          if (dateStr.includes('/')) {
-            const parts = dateStr.split('/');
-            if (parts.length === 3) {
-              const month = parts[0].padStart(2, '0');
-              const day = parts[1].padStart(2, '0');
-              const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-              return `${year}-${month}-${day}`;
-            }
-          }
-          return dateStr;
-        };
-        const normalizedDataDate = normalizeDate(r.resignationDate);
-        matchesDate = normalizedDataDate === dateFilter;
-      }
-      
-      const matchesReason = reasonSearch === '' || 
-        r.reason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
-        r.requestReason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
-        r.hrReason.toLowerCase().includes(reasonSearch.toLowerCase()) ||
-        (r.feedback || '').toLowerCase().includes(reasonSearch.toLowerCase());
-      
-      return matchesDept && matchesMonth && matchesDate && matchesReason;
+      const matchesDate = !dateFilter || !r.resignationDate
+        ? true
+        : normalizeDateForCompare(r.resignationDate) === dateFilter;
+      const q = reasonSearch.toLowerCase();
+      const matchesReason = reasonSearch === '' ||
+        r.reason.toLowerCase().includes(q) ||
+        r.requestReason.toLowerCase().includes(q) ||
+        r.hrReason.toLowerCase().includes(q) ||
+        getExecutiveReasonCategory(r).toLowerCase().includes(q) ||
+        (r.feedback || '').toLowerCase().includes(q);
+      const matchesMismatch = !showMismatchOnly || hasReasonMismatch(r);
+      return matchesDept && matchesMonth && matchesDate && matchesReason && matchesMismatch;
     });
-  }, [exitInterviews, deptFilter, externalMonthFilter, dateFilter, reasonSearch]);
+  }, [exitInterviews, deptFilter, externalMonthFilter, dateFilter, reasonSearch, showMismatchOnly]);
 
-  const requestReasonStats = useMemo(() => {
-    const counts = filteredData.reduce((acc, r) => {
-      if (r.requestReason && r.requestReason !== 'Unknown') {
-        acc[r.requestReason] = (acc[r.requestReason] || 0) + 1;
-      }
+  const reasonBreakdown = useMemo(() => {
+    const total = filteredData.length || 1;
+    const map = filteredData.reduce((acc, e) => {
+      const cat = getExecutiveReasonCategory(e);
+      acc[cat] = (acc[cat] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count: Number(count) }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+    return (Object.entries(map) as [string, number][])
+      .map(([reason, count]) => ({ reason, count, pct: (count / total) * 100 }))
+      .sort((a, b) => b.count - a.count);
   }, [filteredData]);
 
-  const hrReasonStats = useMemo(() => {
-    const counts = filteredData.reduce((acc, r) => {
-      if (r.hrReason && r.hrReason !== 'Unknown') {
-        acc[r.hrReason] = (acc[r.hrReason] || 0) + 1;
-      }
+  const deptBreakdown = useMemo(() => {
+    const total = filteredData.length || 1;
+    const map = filteredData.reduce((acc, e) => {
+      const dept = e.department || 'Unknown';
+      if (!acc[dept]) acc[dept] = { count: 0, reasons: {} as Record<string, number> };
+      acc[dept].count++;
+      const cat = getExecutiveReasonCategory(e);
+      acc[dept].reasons[cat] = (acc[dept].reasons[cat] || 0) + 1;
       return acc;
-    }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count: Number(count) }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+    }, {} as Record<string, { count: number; reasons: Record<string, number> }>);
+    return (Object.entries(map) as [string, { count: number; reasons: Record<string, number> }][])
+      .map(([department, data]) => {
+        const topReason = (Object.entries(data.reasons) as [string, number][])
+          .sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+        return { department, count: data.count, pct: (data.count / total) * 100, topReason };
+      })
+      .sort((a, b) => b.count - a.count);
   }, [filteredData]);
 
-  const positionStats = useMemo(() => {
-    const counts = filteredData.reduce((acc, r) => {
-      acc[r.position] = (acc[r.position] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count: Number(count) }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-  }, [filteredData]);
+  const mismatchRows = useMemo(() =>
+    filteredData
+      .filter(hasReasonMismatch)
+      .map(e => ({
+        id: e.id,
+        name: e.name,
+        department: e.department,
+        employeeReason: getEmployeeReasonCategory(e),
+        hrReason: getHrReasonCategory(e),
+      })),
+  [filteredData]);
 
-  const deptStats = useMemo(() => {
-    const counts = filteredData.reduce((acc, r) => {
-      acc[r.department] = (acc[r.department] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, value]) => ({ name, value: Number(value) }))
-      .sort((a, b) => b.value - a.value);
-  }, [filteredData]);
+  const alignmentStats = useMemo(() => {
+    const withBoth = filteredData.filter(
+      e => (e.requestReason || e.reason) && e.hrReason &&
+        e.requestReason !== 'Unknown' && e.hrReason !== 'Unknown',
+    );
+    const aligned = withBoth.filter(e => !hasReasonMismatch(e)).length;
+    return {
+      withBoth: withBoth.length,
+      aligned,
+      mismatched: mismatchRows.length,
+      alignPct: withBoth.length > 0 ? (aligned / withBoth.length) * 100 : 100,
+    };
+  }, [filteredData, mismatchRows.length]);
+
+  const positionsByDept = useMemo(() => {
+    if (!selectedDeptForPositions) return [];
+    return filteredData
+      .filter(r => r.department === selectedDeptForPositions)
+      .reduce((acc, r) => {
+        acc[r.position] = (acc[r.position] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+  }, [filteredData, selectedDeptForPositions]);
+
+  const salaryPct = reasonBreakdown.find(r => r.reason === 'Salary')?.pct || 0;
+  const supervisorPct = reasonBreakdown.find(r => r.reason === 'Supervisor Issue')?.pct || 0;
+  const careerPct = reasonBreakdown.find(r => r.reason === 'Career Growth')?.pct || 0;
+
+  const offTargetReasons = useMemo(
+    () => buildExitReasonOffTarget(reasonBreakdown),
+    [reasonBreakdown],
+  );
+
+  const periodLabel = externalMonthFilter === 'All' ? 'All months' : externalMonthFilter;
+  const topReason = reasonBreakdown[0];
 
   return (
-    <div className="space-y-8">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-            <MessageSquare className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Total Interviews</p>
-            <p className="text-2xl font-bold text-slate-900">{filteredData.length}</p>
-          </div>
-        </div>
-      </div>
+    <OperationalShell>
+      <OperationalHeader
+        eyebrow="HR Executive Dashboard 2.0"
+        title="Exit Interview Analytics"
+        subtitle={`${filteredData.length} interviews · ${periodLabel} · unified reason categories`}
+        gradient="amber"
+        metrics={[
+          { value: filteredData.length, label: 'Exits' },
+          { value: topReason?.reason || '—', label: 'Top Reason' },
+          { value: topReason ? `${topReason.pct.toFixed(0)}%` : '—', label: 'Top %' },
+          { value: mismatchRows.length, label: 'Reason Gaps', accentClass: mismatchRows.length > 0 ? 'text-rose-300' : undefined },
+        ]}
+        alert={
+          offTargetReasons.length > 0 ? (
+            <OperationalAlert tone="rose">
+              <Siren className="w-4 h-4 flex-shrink-0 animate-pulse" />
+              <span className="text-sm font-bold">
+                {offTargetReasons[0].metric}: {offTargetReasons[0].now} · {offTargetReasons[0].gap}
+              </span>
+            </OperationalAlert>
+          ) : undefined
+        }
+      />
 
-      {/* Filters */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Filters</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Department</label>
-            <select 
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            >
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+      <OperationalSection
+        title="Reason Field Alignment"
+        subtitle={`Request Reason + HR Reason · ${alignmentStats.withBoth} records with both fields`}
+      >
+        <div className="flex flex-wrap gap-4">
+          <div className="px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
+            <span className="text-xs font-bold text-emerald-700 uppercase">Aligned</span>
+            <p className="text-lg font-black text-emerald-800">{alignmentStats.alignPct.toFixed(0)}%</p>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Filter by Date</label>
-            <input 
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            />
+          <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl">
+            <span className="text-xs font-bold text-slate-500 uppercase">Same category</span>
+            <p className="text-lg font-black text-slate-800">{alignmentStats.aligned} / {alignmentStats.withBoth || filteredData.length}</p>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Search Reason/Feedback</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input 
-                type="text"
-                placeholder="Search..."
-                value={reasonSearch}
-                onChange={(e) => setReasonSearch(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-              />
+          {mismatchRows.length > 0 && (
+            <div className="px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl">
+              <span className="text-xs font-bold text-rose-600 uppercase">Category mismatch</span>
+              <p className="text-lg font-black text-rose-700">{mismatchRows.length}</p>
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      </OperationalSection>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Request Reasons Chart */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Top Request Reasons</h3>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={requestReasonStats} layout="vertical" margin={{ left: 40, right: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  width={150} 
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickFormatter={(value) => value.length > 30 ? `${value.substring(0, 30)}...` : value}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-                <Bar dataKey="count" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+      <OperationalFilters>
+        <FilterField label="Department">
+          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className={filterSelectClass}>
+            {departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </FilterField>
+        <FilterField label="Resignation Date">
+          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={filterInputClass} />
+        </FilterField>
+        <FilterField label="Search">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input type="text" placeholder="Reason category..." value={reasonSearch} onChange={e => setReasonSearch(e.target.value)} className={`${filterInputClass} pl-9`} />
           </div>
-        </div>
+        </FilterField>
+        <FilterField label="View">
+          <select value={showMismatchOnly ? 'gaps' : 'all'} onChange={e => setShowMismatchOnly(e.target.value === 'gaps')} className={filterSelectClass}>
+            <option value="all">All interviews</option>
+            <option value="gaps">Reason gaps only</option>
+          </select>
+        </FilterField>
+      </OperationalFilters>
 
-        {/* HR Reasons Chart */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Top HR Reasons</h3>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={hrReasonStats} layout="vertical" margin={{ left: 40, right: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  width={150} 
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickFormatter={(value) => value.length > 30 ? `${value.substring(0, 30)}...` : value}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-                <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Position Distribution */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Resignations by Position</h3>
-          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {positionStats.map((stat, index) => {
-              const percentage = filteredData.length > 0 ? ((stat.count / filteredData.length) * 100).toFixed(1) : '0.0';
-              return (
-                <div key={stat.name} className="flex items-center justify-between group py-1">
-                  <div className="flex items-center gap-3">
-                    <div 
-                      className="w-3 h-3 rounded-full shrink-0" 
-                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                    />
-                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors truncate max-w-[180px]">
-                      {stat.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <span className="text-sm font-bold text-slate-900">{stat.count}</span>
-                    <span className="text-xs font-medium text-slate-400 w-12 text-right">({percentage}%)</span>
-                  </div>
-                </div>
-              );
-            })}
-            
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between sticky bottom-0 bg-white">
-              <span className="text-sm font-bold text-slate-900">Total</span>
-              <span className="text-sm font-bold text-slate-900">{filteredData.length}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-800 mb-6">Department Distribution</h3>
-          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {deptStats.map((stat, index) => {
-              const percentage = filteredData.length > 0 ? ((stat.value / filteredData.length) * 100).toFixed(1) : '0.0';
-              return (
-                <div key={stat.name} className="flex items-center justify-between group py-1">
-                  <div className="flex items-center gap-3">
-                    <div 
-                      className="w-3 h-3 rounded-full shrink-0" 
-                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                    />
-                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors truncate max-w-[180px]">
-                      {stat.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <span className="text-sm font-bold text-slate-900">{stat.value}</span>
-                    <span className="text-xs font-medium text-slate-400 w-12 text-right">({percentage}%)</span>
-                  </div>
-                </div>
-              );
-            })}
-            
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between sticky bottom-0 bg-white">
-              <span className="text-sm font-bold text-slate-900">Total</span>
-              <span className="text-sm font-bold text-slate-900">{filteredData.length}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* By Department Position Count */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-slate-800">By Department</h3>
-            <div className="relative">
-              <select
-                value={selectedDeptForPositions}
-                onChange={(e) => setSelectedDeptForPositions(e.target.value)}
-                className="appearance-none bg-slate-50 border border-slate-100 rounded-xl px-6 py-2 pr-10 text-sm font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer"
-              >
-                {actualDepartments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                <Filter className="w-4 h-4 text-indigo-400" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-50/50 rounded-3xl p-8 border border-slate-100">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
-              <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{selectedDeptForPositions}</h4>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{totalStaffInDept} TOTAL STAFF</span>
-            </div>
-
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
-              {positionsByDept.map((pos) => (
-                <div key={pos.name} className="flex items-center justify-between py-2 group">
-                  <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors">
-                    {pos.name}
-                  </span>
-                  <div className="bg-white border border-slate-200 rounded-lg px-4 py-1.5 shadow-sm min-w-[48px] text-center">
-                    <span className="text-sm font-bold text-slate-900">{pos.count}</span>
-                  </div>
-                </div>
-              ))}
-              {positionsByDept.length === 0 && (
-                <div className="text-center py-10 text-slate-400 italic text-sm">
-                  No data available for this department
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-800">Interview Details</h3>
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{filteredData.length} Records</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Employee</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Position</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Department</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Last Date</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Request Reason</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">HR Reason</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredData.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-bold text-slate-700">{item.name}</p>
-                    <p className="text-xs text-slate-400">{item.resignationDate}</p>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{item.position}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold uppercase">
-                      {item.department}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{item.lastDate}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600 max-w-[200px] truncate" title={item.requestReason}>
-                    {item.requestReason}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600 max-w-[200px] truncate" title={item.hrReason}>
-                    {item.hrReason}
-                  </td>
-                  <td className="px-6 py-4">
-                    <button 
-                      onClick={() => setSelectedInterview(item)}
-                      className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+      {/* Chairman table: Reason | Count | % */}
+      <OperationalSection title="Exit Reason Summary" subtitle="Unified categories · click row for employees">
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Reason</OperationalTh>
+              <OperationalTh align="right">Count</OperationalTh>
+              <OperationalTh align="right">%</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {reasonBreakdown.map(row => {
+                const isHighRisk =
+                  (row.reason === 'Salary' && row.pct >= SALARY_HIGH_THRESHOLD) ||
+                  (row.reason === 'Supervisor Issue' && row.pct >= SUPERVISOR_HIGH_THRESHOLD) ||
+                  (row.reason === 'Career Growth' && row.pct >= CAREER_GROWTH_THRESHOLD);
+                const isExpanded = expandedReason === row.reason;
+                const records = filteredData.filter(e => getExecutiveReasonCategory(e) === row.reason);
+                return (
+                  <React.Fragment key={row.reason}>
+                    <tr
+                      className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50/80 ${isHighRisk ? 'bg-rose-50/30' : ''}`}
+                      onClick={() => setExpandedReason(isExpanded ? null : row.reason)}
                     >
-                      <Info className="w-4 h-4" />
-                    </button>
-                  </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-2">
+                          {isHighRisk && <span className="w-2 h-2 rounded-full bg-rose-500 flex-shrink-0" />}
+                          <span className={`text-sm font-bold ${REASON_COLORS[row.reason] || 'text-slate-700'}`}>{row.reason}</span>
+                          {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400 ml-auto" /> : <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-right text-sm font-black tabular-nums">{row.count}</td>
+                      <td className="px-4 py-3.5 text-right text-sm font-bold tabular-nums">{row.pct.toFixed(0)}%</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-slate-50/40">
+                        <td colSpan={3} className="px-4 py-3">
+                          <div className="max-h-48 overflow-y-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr>
+                                  <th className="text-left text-[10px] font-bold text-slate-400 uppercase py-1">Employee</th>
+                                  <th className="text-left text-[10px] font-bold text-slate-400 uppercase py-1">Department</th>
+                                  <th className="text-left text-[10px] font-bold text-slate-400 uppercase py-1">Date</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {records.slice(0, 20).map((e, i) => (
+                                  <tr key={i} className="border-t border-slate-100">
+                                    <td className="py-1.5 text-sm font-semibold text-slate-700">{e.name}</td>
+                                    <td className="py-1.5 text-sm text-slate-500">{e.department}</td>
+                                    <td className="py-1.5 text-sm text-slate-500">{e.resignationDate}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
+
+      {/* Department Wise Breakdown */}
+      <OperationalSection title="Department Wise Breakdown" subtitle="Department | Exits | % | Top Reason">
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Department</OperationalTh>
+              <OperationalTh align="right">Exits</OperationalTh>
+              <OperationalTh align="right">%</OperationalTh>
+              <OperationalTh>Top Reason</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {deptBreakdown.map(row => (
+                <tr key={row.department} className="border-t border-slate-100 hover:bg-slate-50/80">
+                  <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.department}</td>
+                  <td className="px-4 py-3 text-right text-sm font-black tabular-nums">{row.count}</td>
+                  <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-slate-600">{row.pct.toFixed(0)}%</td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${REASON_COLORS[row.topReason] || 'text-slate-600'}`}>{row.topReason}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
-      </div>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
 
-      {/* Detail Modal */}
+      {/* Reason gaps — only when employee category ≠ HR category */}
+      {mismatchRows.length > 0 && (
+        <OperationalSection title="Reason Alignment Gaps" subtitle="Employee stated ≠ HR classification — review these">
+          <OperationalTableWrap>
+            <OperationalTable>
+              <OperationalThead>
+                <OperationalTh>Employee</OperationalTh>
+                <OperationalTh>Department</OperationalTh>
+                <OperationalTh>Employee Stated</OperationalTh>
+                <OperationalTh>HR Classified</OperationalTh>
+              </OperationalThead>
+              <tbody>
+                {mismatchRows.slice(0, 30).map(row => (
+                  <tr key={row.id} className="border-t border-slate-100 bg-rose-50/20">
+                    <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{row.department}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-amber-700">{row.employeeReason}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-indigo-700">{row.hrReason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </OperationalTable>
+          </OperationalTableWrap>
+        </OperationalSection>
+      )}
+
+      <OperationalSection
+        title="Position Breakdown"
+        subtitle={`${selectedDeptForPositions} · ${(Object.values(positionsByDept) as number[]).reduce((a, b) => a + b, 0)} exits`}
+        headerAction={
+          <select value={selectedDeptForPositions} onChange={e => setSelectedDeptForPositions(e.target.value)} className={`${filterSelectClass} font-semibold text-indigo-600 min-w-[140px]`}>
+            {actualDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        }
+      >
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Position</OperationalTh>
+              <OperationalTh align="right">Count</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {(Object.entries(positionsByDept) as [string, number][]).sort((a, b) => b[1] - a[1]).map(([pos, count]) => (
+                <tr key={pos} className="border-t border-slate-100">
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-700">{pos}</td>
+                  <td className="px-4 py-3 text-right text-sm font-black tabular-nums">{count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
+
+      {/* Executive Actions */}
+      <OffTargetPanel
+        title="Exit Reasons Over Threshold"
+        rows={offTargetReasons}
+        showEntity={false}
+        emptyLabel={`Salary ${salaryPct.toFixed(0)}% · Supervisor ${supervisorPct.toFixed(0)}% · Career ${careerPct.toFixed(0)}% — within ${SALARY_HIGH_THRESHOLD}% / ${SUPERVISOR_HIGH_THRESHOLD}% / ${CAREER_GROWTH_THRESHOLD}%`}
+      />
+
+      <OperationalSection title="Interview Registry" subtitle={`${filteredData.length} records · normalized reason + raw detail on click`}>
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Employee</OperationalTh>
+              <OperationalTh>Department</OperationalTh>
+              <OperationalTh>Reason</OperationalTh>
+              <OperationalTh>Last Date</OperationalTh>
+              <OperationalTh align="center">Detail</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {filteredData.slice(0, 50).map(item => {
+                const cat = getExecutiveReasonCategory(item);
+                const gap = hasReasonMismatch(item);
+                return (
+                  <tr key={item.id} className={`border-t border-slate-100 hover:bg-slate-50/80 ${gap ? 'bg-amber-50/30' : ''}`}>
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-bold text-slate-800">{item.name}</p>
+                      <p className="text-xs text-slate-400">{item.position}</p>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{item.department}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-sm font-bold ${REASON_COLORS[cat] || 'text-slate-700'}`}>{cat}</span>
+                      {gap && <span className="ml-2 text-[10px] font-bold text-amber-600 uppercase">Gap</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{item.lastDate}</td>
+                    <td className="px-4 py-3 text-center">
+                      <button onClick={() => setSelectedInterview(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                        <Info className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
+
       {selectedInterview && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
-                    <MessageSquare className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-slate-800">{selectedInterview.name}</h3>
-                    <p className="text-sm text-slate-400">{selectedInterview.position}</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setSelectedInterview(null)}
-                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
-                >
-                  <Filter className="w-5 h-5 text-slate-400 rotate-45" />
-                </button>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">{selectedInterview.name}</h3>
+                <p className="text-sm text-slate-500">{selectedInterview.position} · {selectedInterview.department}</p>
               </div>
-
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Department</p>
-                    <p className="text-sm font-bold text-slate-700">{selectedInterview.department}</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Resign Date</p>
-                    <p className="text-sm font-bold text-slate-700">{selectedInterview.resignationDate}</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Last Date</p>
-                    <p className="text-sm font-bold text-slate-700">{selectedInterview.lastDate}</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Reason (General)</p>
-                    <p className="text-sm font-bold text-slate-700">{selectedInterview.reason}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Request Reason</p>
-                  <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                    <p className="text-sm text-amber-700 font-medium">{selectedInterview.requestReason}</p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">HR Reason</p>
-                  <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100">
-                    <p className="text-sm text-rose-700 font-medium">{selectedInterview.hrReason}</p>
-                  </div>
-                </div>
-
-                {selectedInterview.feedback && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Feedback / Comments</p>
-                    <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                      <p className="text-sm text-indigo-700 leading-relaxed">{selectedInterview.feedback}</p>
-                    </div>
-                  </div>
-                )}
+              <button onClick={() => setSelectedInterview(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                <p className="text-[10px] font-bold text-indigo-500 uppercase mb-1">Executive Category</p>
+                <p className={`text-base font-black ${REASON_COLORS[getExecutiveReasonCategory(selectedInterview)]}`}>
+                  {getExecutiveReasonCategory(selectedInterview)}
+                </p>
               </div>
-
-              <button 
-                onClick={() => setSelectedInterview(null)}
-                className="w-full mt-8 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-colors"
-              >
-                Close Details
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-amber-50 rounded-xl">
+                  <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Employee Stated</p>
+                  <p className="text-xs font-semibold text-amber-800">{getEmployeeReasonCategory(selectedInterview)}</p>
+                  <p className="text-[10px] text-amber-700/80 mt-1 line-clamp-3">{selectedInterview.requestReason}</p>
+                </div>
+                <div className="p-3 bg-indigo-50 rounded-xl">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">HR Classified</p>
+                  <p className="text-xs font-semibold text-indigo-800">{getHrReasonCategory(selectedInterview)}</p>
+                  <p className="text-[10px] text-indigo-700/80 mt-1 line-clamp-3">{selectedInterview.hrReason}</p>
+                </div>
+              </div>
+              {selectedInterview.feedback && (
+                <div className="p-3 bg-slate-50 rounded-xl">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Feedback</p>
+                  <p className="text-sm text-slate-700">{selectedInterview.feedback}</p>
+                </div>
+              )}
+              <button onClick={() => setSelectedInterview(null)} className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800">
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+
+      <OperationalOwnership items={[
+        { icon: MessageSquare, label: 'Primary', value: 'HR Employee Relations Team' },
+        { icon: UserCog, label: 'Co-Owner', value: 'Department Heads' },
+      ]} />
+    </OperationalShell>
   );
 };

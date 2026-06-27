@@ -1,14 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
-import { Manpower } from '../data/mockData';
-import { Users, Filter, Search, TrendingUp, TrendingDown, Minus, Building2 } from 'lucide-react';
+import { Manpower, EmployeeRecord } from '../data/mockData';
+import { Users, Search, TrendingUp, TrendingDown, Minus, Building2, UserCog } from 'lucide-react';
+import {
+  OperationalShell,
+  OperationalHeader,
+  OperationalSection,
+  OperationalOwnership,
+  OperationalAlert,
+  FilterField,
+  filterSelectClass,
+  filterInputClass,
+} from './OperationalLayout';
 
 interface ManpowerDashboardProps {
   manpower: Manpower[];
+  employees?: EmployeeRecord[];
   externalMonthFilter?: string;
 }
 
-export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, externalMonthFilter = 'All' }) => {
+export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, employees = [], externalMonthFilter = 'All' }) => {
   const [deptFilter, setDeptFilter] = useState<string>('All');
   const [posSearch, setPosSearch] = useState<string>('');
 
@@ -19,27 +30,29 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
   const filteredData = useMemo(() => {
     return manpower.filter(r => {
       const matchesDept = deptFilter === 'All' || r.department === deptFilter;
-      const matchesMonth = externalMonthFilter === 'All' || r.month === externalMonthFilter;
-      const matchesPos = posSearch === '' || 
+      const matchesPos = posSearch === '' ||
         r.position.toLowerCase().includes(posSearch.toLowerCase());
-      
-      return matchesDept && matchesMonth && matchesPos;
+      return matchesDept && matchesPos;
     });
-  }, [manpower, deptFilter, externalMonthFilter, posSearch]);
+  }, [manpower, deptFilter, posSearch]);
 
   const stats = useMemo(() => {
     const totalBudgeted = filteredData.reduce((acc, r) => acc + r.budgeted, 0);
-    const totalActual = filteredData.reduce((acc, r) => acc + r.actual, 0);
-    const totalVariance = totalActual - totalBudgeted;
-    const variancePercent = totalBudgeted > 0 ? (totalVariance / totalBudgeted) * 100 : 0;
+    const totalActual = employees.length > 0
+      ? employees.length
+      : filteredData.reduce((acc, r) => acc + r.actual, 0);
+    const hasBudgetData = totalBudgeted > 0;
+    const totalVariance = hasBudgetData ? totalActual - totalBudgeted : null;
+    const variancePercent = hasBudgetData && totalBudgeted > 0 ? ((totalActual - totalBudgeted) / totalBudgeted) * 100 : null;
 
     return {
       totalBudgeted,
       totalActual,
+      hasBudgetData,
       totalVariance,
-      variancePercent
+      variancePercent,
     };
-  }, [filteredData]);
+  }, [filteredData, employees]);
 
   const chartData = useMemo(() => {
     const deptGroups = filteredData.reduce((acc, r) => {
@@ -208,30 +221,49 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
     );
   };
 
-  return (
-    <div className="space-y-8">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Actual Manpower</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.totalActual}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-            <Building2 className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Total Departments</p>
-            <p className="text-2xl font-bold text-slate-900">{departments.filter(d => d !== 'All').length}</p>
-          </div>
-        </div>
-      </div>
+  const periodLabel = externalMonthFilter === 'All' ? 'All months' : externalMonthFilter;
 
+  return (
+    <OperationalShell>
+      <OperationalHeader
+        eyebrow="Workforce Snapshot"
+        title="Manpower Dashboard"
+        subtitle={`${stats.totalActual} employees · ${departments.length - 1} departments · live data`}
+        gradient="emerald"
+        metrics={[
+          { value: stats.totalActual, label: 'Actual' },
+          { value: stats.hasBudgetData ? stats.totalBudgeted : '—', label: 'Budgeted' },
+          { value: stats.hasBudgetData && stats.totalVariance !== null ? stats.totalVariance : '—', label: 'Gap' },
+          { value: deptStats.length, label: 'Departments' },
+        ]}
+        alert={
+          !stats.hasBudgetData ? (
+            <OperationalAlert tone="amber">
+              <span className="text-sm font-bold">Approved headcount budget not loaded — showing actual staff only.</span>
+            </OperationalAlert>
+          ) : undefined
+        }
+      />
+
+      {externalMonthFilter !== 'All' && (
+        <p className="text-sm text-slate-500 px-1">Headcount is a live snapshot — period filter ({periodLabel}) does not change totals.</p>
+      )}
+
+      <OperationalSection title="Filters" subtitle="Department and position search">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <FilterField label="Department">
+            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className={filterSelectClass}>
+              {departments.map(dept => <option key={dept} value={dept}>{dept === 'All' ? 'All Departments' : dept}</option>)}
+            </select>
+          </FilterField>
+          <FilterField label="Search Position">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input type="text" placeholder="Search position..." value={posSearch} onChange={(e) => setPosSearch(e.target.value)} className={`${filterInputClass} pl-9`} />
+            </div>
+          </FilterField>
+        </div>
+      </OperationalSection>
       {/* Breakdown Lists */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <BreakdownList title="Employees by Department" data={deptStats} />
@@ -334,6 +366,10 @@ export const ManpowerDashboard: React.FC<ManpowerDashboardProps> = ({ manpower, 
           )}
         </div>
       </div>
-    </div>
+      <OperationalOwnership items={[
+        { icon: Users, label: 'Primary', value: 'HR Operations' },
+        { icon: UserCog, label: 'Co-Owner', value: 'Department Heads' },
+      ]} />
+    </OperationalShell>
   );
 };

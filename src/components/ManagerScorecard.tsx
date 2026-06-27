@@ -1,31 +1,70 @@
 import React, { useMemo, useState } from 'react';
 import {
   UserCog,
-  TrendingDown,
   AlertTriangle,
-  Award,
+  Siren,
   ChevronUp,
   ChevronDown,
   Users,
   Gauge,
+  ArrowRight,
+  Crown,
+  TrendingDown,
 } from 'lucide-react';
-import { Resignation, Manpower } from '../data/mockData';
+import { Candidate, EmployeeRecord, Resignation, Manpower } from '../data/mockData';
+import { flattenOffTarget, getManagerOffTargetRows } from '../utils/offTarget';
+import { OffTargetPanel } from './OffTargetPanel';
 
 interface ManagerScorecardProps {
   resignations: Resignation[];
   manpower: Manpower[];
+  employees: EmployeeRecord[];
+  candidates: Candidate[];
 }
 
 type Score = 'A' | 'B' | 'C' | 'D';
 
+interface ManagerData {
+  manager: string;
+  department: string;
+  position: string;
+  headcount: number;
+  turnoverRate: number;
+  vacancyRate: number;
+  productivity: Score;
+  turnoverGrade: Score;
+  vacancyGrade: Score;
+  overallScore: number;
+  overallGrade: Score;
+  isLeadershipRisk: boolean;
+  isHighPerformer: boolean;
+  riskRank: number;
+}
+
 const SCORE_WEIGHTS = {
   turnover: 0.40,
   vacancy: 0.35,
-  utilization: 0.25,
+  productivity: 0.25,
 } as const;
+
+const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const gradeValue: Record<Score, number> = { A: 4, B: 3, C: 2, D: 1 };
 const valueToScore = (v: number): Score => (v >= 3.5 ? 'A' : v >= 2.5 ? 'B' : v >= 1.5 ? 'C' : 'D');
+
+function getPositionLevel(position: string): number {
+  const lower = position.toLowerCase();
+  if (lower.includes('gm') || lower.includes('general manager') || lower.includes('chief') || lower.includes('director')) return 5;
+  if (lower.includes('deputy') && lower.includes('manager')) return 4;
+  if (lower.includes('manager') || lower.includes('head ')) return 4;
+  if (lower.includes('supervisor') || lower.includes('leader')) return 3;
+  return 1;
+}
+
+function isManagerPosition(position: string): boolean {
+  const lower = position.toLowerCase();
+  return ['manager', 'head', 'director', 'chief', 'gm', 'general manager', 'supervisor'].some(k => lower.includes(k));
+}
 
 function turnoverToScore(rate: number): Score {
   if (rate < 5) return 'A';
@@ -34,459 +73,440 @@ function turnoverToScore(rate: number): Score {
   return 'D';
 }
 
-function vacancyToScore(rate: number): Score {
+function vacancyRateToScore(rate: number): Score {
   if (rate <= 3) return 'A';
   if (rate <= 7) return 'B';
   if (rate <= 12) return 'C';
   return 'D';
 }
 
-function utilizationToScore(rate: number): Score {
-  if (rate >= 95) return 'A';
-  if (rate >= 85) return 'B';
-  if (rate >= 75) return 'C';
+function productivityToScore(turnoverRate: number, vacancyRate: number, hireRatio: number): Score {
+  let score = 4;
+  if (turnoverRate >= 15) score -= 2;
+  else if (turnoverRate >= 10) score -= 1;
+  else if (turnoverRate >= 5) score -= 0.5;
+  if (vacancyRate >= 12) score -= 1.5;
+  else if (vacancyRate >= 7) score -= 1;
+  else if (vacancyRate >= 4) score -= 0.5;
+  if (hireRatio >= 0.5) score += 0.25;
+  else if (hireRatio < 0.2 && turnoverRate > 5) score -= 0.5;
+  if (score >= 3.5) return 'A';
+  if (score >= 2.5) return 'B';
+  if (score >= 1.5) return 'C';
   return 'D';
 }
 
-interface ManagerData {
-  department: string;
-  headcount: number;
-  budgeted: number;
-  turnoverRate: number;
-  vacancyRate: number;
-  utilizationRate: number;
-  turnoverScore: Score;
-  vacancyScore: Score;
-  utilizationScore: Score;
-  overallScore: number;
-  overallGrade: Score;
-}
-
 const scoreConfig: Record<Score, { label: string; badge: string; bg: string; border: string; text: string; bar: string }> = {
-  A: { label: 'Excellent', badge: 'bg-emerald-100 text-emerald-700 border-emerald-300', bg: 'bg-emerald-50/40', border: 'border-emerald-200', text: 'text-emerald-600', bar: 'bg-emerald-500' },
-  B: { label: 'Good', badge: 'bg-blue-100 text-blue-700 border-blue-300', bg: 'bg-blue-50/40', border: 'border-blue-200', text: 'text-blue-600', bar: 'bg-blue-500' },
-  C: { label: 'At Risk', badge: 'bg-amber-100 text-amber-700 border-amber-300', bg: 'bg-amber-50/40', border: 'border-amber-300', text: 'text-amber-600', bar: 'bg-amber-500' },
-  D: { label: 'Critical', badge: 'bg-rose-100 text-rose-700 border-rose-300', bg: 'bg-rose-50/40', border: 'border-rose-300', text: 'text-rose-600', bar: 'bg-rose-500' },
+  A: { label: 'Excellent', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', bg: 'bg-emerald-50/50', border: 'border-emerald-200', text: 'text-emerald-600', bar: 'bg-emerald-500' },
+  B: { label: 'Good', badge: 'bg-blue-50 text-blue-700 border-blue-200', bg: 'bg-blue-50/40', border: 'border-blue-200', text: 'text-blue-600', bar: 'bg-blue-500' },
+  C: { label: 'At Risk', badge: 'bg-amber-50 text-amber-700 border-amber-200', bg: 'bg-amber-50/50', border: 'border-amber-200', text: 'text-amber-600', bar: 'bg-amber-500' },
+  D: { label: 'Critical', badge: 'bg-rose-50 text-rose-700 border-rose-200', bg: 'bg-rose-50/50', border: 'border-rose-200', text: 'text-rose-600', bar: 'bg-rose-500' },
 };
 
-export const ManagerScorecard: React.FC<ManagerScorecardProps> = ({ resignations, manpower }) => {
+function GradeBadge({ grade, compact = false }: { grade: Score; compact?: boolean }) {
+  const gc = scoreConfig[grade];
+  return (
+    <span className={`inline-flex items-center justify-center ${compact ? 'w-7 h-7' : 'px-2.5 py-1'} rounded-lg border ${gc.badge} text-sm font-black ${gc.text}`}>
+      {grade}
+    </span>
+  );
+}
+
+export const ManagerScorecard: React.FC<ManagerScorecardProps> = ({
+  resignations,
+  manpower,
+  employees,
+  candidates,
+}) => {
   const managers = useMemo<ManagerData[]>(() => {
-    const deptMap = manpower.reduce((acc, m) => {
-      const dept = m.department;
+    const deptEmployees = new Map<string, EmployeeRecord[]>();
+    for (const emp of employees) {
+      const dept = emp.department?.trim() || 'Unknown';
+      if (dept === 'Unknown') continue;
+      if (!deptEmployees.has(dept)) deptEmployees.set(dept, []);
+      deptEmployees.get(dept)!.push(emp);
+    }
+
+    for (const m of manpower) {
+      const dept = m.department?.trim() || 'Unknown';
+      if (dept === 'Unknown') continue;
+      if (!deptEmployees.has(dept)) deptEmployees.set(dept, []);
+    }
+
+    const pipelineByDept = new Map<string, number>();
+    for (const c of candidates.filter(x => x.finalStatus === 'In Progress')) {
+      pipelineByDept.set(c.department, (pipelineByDept.get(c.department) || 0) + 1);
+    }
+    const joinedByDept = new Map<string, number>();
+    for (const c of candidates.filter(x => x.finalStatus === 'Joined')) {
+      joinedByDept.set(c.department, (joinedByDept.get(c.department) || 0) + 1);
+    }
+
+    const midMonthIdx = Math.floor(MONTH_ORDER.length / 2);
+    const resByDept = new Map<string, { recent: number; prior: number }>();
+    for (const r of resignations) {
+      const dept = r.department?.trim() || 'Unknown';
+      if (!resByDept.has(dept)) resByDept.set(dept, { recent: 0, prior: 0 });
+      const entry = resByDept.get(dept)!;
+      const monthIdx = MONTH_ORDER.indexOf(r.month);
+      if (monthIdx >= midMonthIdx) entry.recent += 1;
+      else entry.prior += 1;
+    }
+
+    const mpByDept = manpower.reduce((acc, m) => {
+      const dept = m.department?.trim() || 'Unknown';
       if (!acc[dept]) acc[dept] = { actual: 0, budgeted: 0 };
       acc[dept].actual += m.actual || 0;
       acc[dept].budgeted += m.budgeted || 0;
       return acc;
     }, {} as Record<string, { actual: number; budgeted: number }>);
 
-    const resByDept = resignations.reduce((acc, r) => {
-      acc[r.department] = (acc[r.department] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const findDeptHead = (dept: string, emps: EmployeeRecord[]): { name: string; position: string } => {
+      const managersInDept = emps.filter(e => isManagerPosition(e.position));
+      if (managersInDept.length > 0) {
+        const best = [...managersInDept].sort(
+          (a, b) => getPositionLevel(b.position) - getPositionLevel(a.position)
+        )[0];
+        return { name: best.name, position: best.position };
+      }
+      return { name: `${dept} Head`, position: 'Department Head' };
+    };
 
-    return (Object.entries(deptMap) as [string, { actual: number; budgeted: number }][])
-      .map(([dept, data]) => {
-        const headcount = data.actual;
-        const budgeted = data.budgeted;
-        const vacancy = Math.max(0, budgeted - headcount);
-        const turnoverRate = headcount > 0 ? ((resByDept[dept] || 0) / headcount) * 100 : 0;
-        const vacancyRate = budgeted > 0 ? (vacancy / budgeted) * 100 : 0;
-        const utilizationRate = budgeted > 0 ? (headcount / budgeted) * 100 : 100;
+    const raw: Omit<ManagerData, 'riskRank'>[] = [];
 
-        const tScore = turnoverToScore(turnoverRate);
-        const vScore = vacancyToScore(vacancyRate);
-        const uScore = utilizationToScore(utilizationRate);
+    for (const [department, emps] of deptEmployees.entries()) {
+      const headcount = emps.length > 0
+        ? emps.length
+        : (mpByDept[department]?.actual || 0);
+      if (headcount === 0) continue;
 
-        const overallScore =
-          gradeValue[tScore] * SCORE_WEIGHTS.turnover +
-          gradeValue[vScore] * SCORE_WEIGHTS.vacancy +
-          gradeValue[uScore] * SCORE_WEIGHTS.utilization;
+      const mp = mpByDept[department] || { actual: headcount, budgeted: 0 };
+      const budgeted = mp.budgeted;
+      let vacancyRate: number;
+      if (budgeted > 0) {
+        vacancyRate = (Math.max(0, budgeted - headcount) / budgeted) * 100;
+      } else {
+        const pipeline = pipelineByDept.get(department) || 0;
+        vacancyRate = headcount > 0 ? (pipeline / headcount) * 100 : 0;
+      }
 
-        return {
-          department: dept,
-          headcount,
-          budgeted,
-          turnoverRate,
-          vacancyRate,
-          utilizationRate,
-          turnoverScore: tScore,
-          vacancyScore: vScore,
-          utilizationScore: uScore,
-          overallScore: Math.round(overallScore * 100) / 100,
-          overallGrade: valueToScore(overallScore),
-        };
-      })
-      .filter(d => d.headcount > 0);
-  }, [resignations, manpower]);
+      const res = resByDept.get(department) || { recent: 0, prior: 0 };
+      const turnoverRate = headcount > 0 ? (res.recent / headcount) * 100 : 0;
 
-  const [sortField, setSortField] = useState<'department' | 'headcount' | 'turnoverRate' | 'vacancyRate' | 'overallScore'>('overallScore');
-  const [sortAsc, setSortAsc] = useState(true);
-  const [selectedMgr, setSelectedMgr] = useState<string | null>(null);
+      const joined = joinedByDept.get(department) || 0;
+      const pipeline = pipelineByDept.get(department) || 0;
+      const hireRatio = res.recent + pipeline > 0 ? joined / (res.recent + pipeline) : joined > 0 ? 1 : 0.5;
 
-  const sorted = useMemo(() => {
-    return [...managers].sort((a, b) => {
-      let cmp = 0;
-      if (sortField === 'department') cmp = a.department.localeCompare(b.department);
-      else cmp = (a[sortField] as number) - (b[sortField] as number);
-      return sortAsc ? cmp : -cmp;
-    });
-  }, [managers, sortField, sortAsc]);
+      const turnoverGrade = turnoverToScore(turnoverRate);
+      const vacancyGrade = vacancyRateToScore(vacancyRate);
+      const productivity = productivityToScore(turnoverRate, vacancyRate, hireRatio);
 
-  const toggleSort = (field: typeof sortField) => {
-    if (sortField === field) setSortAsc(!sortAsc);
-    else { setSortField(field); setSortAsc(true); }
-  };
+      const overallScore =
+        gradeValue[turnoverGrade] * SCORE_WEIGHTS.turnover +
+        gradeValue[vacancyGrade] * SCORE_WEIGHTS.vacancy +
+        gradeValue[productivity] * SCORE_WEIGHTS.productivity;
 
-  const ranking = useMemo(() => [...managers].sort((a, b) => b.overallScore - a.overallScore), [managers]);
+      const overallGrade = valueToScore(overallScore);
+      const head = findDeptHead(department, emps);
 
-  const gradeA = managers.filter(m => m.overallGrade === 'A').length;
-  const gradeB = managers.filter(m => m.overallGrade === 'B').length;
-  const gradeC = managers.filter(m => m.overallGrade === 'C').length;
-  const gradeD = managers.filter(m => m.overallGrade === 'D').length;
-  const avgScore = managers.length > 0 ? managers.reduce((s, m) => s + m.overallScore, 0) / managers.length : 0;
+      const isLeadershipRisk =
+        overallGrade === 'C' || overallGrade === 'D' ||
+        turnoverRate >= 15 || vacancyRate >= 10;
 
-  const SortHeader = ({ field, label, align = 'left' }: { field: typeof sortField; label: string; align?: 'left' | 'right' | 'center' }) => (
-    <th
-      onClick={() => toggleSort(field)}
-      className={`px-5 py-4 text-[11px] font-bold text-slate-400 uppercase tracking-widest cursor-pointer hover:text-slate-600 transition-colors select-none whitespace-nowrap ${
-        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
-      }`}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {sortField === field && (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-      </span>
-    </th>
+      raw.push({
+        manager: head.name,
+        department,
+        position: head.position,
+        headcount,
+        turnoverRate,
+        vacancyRate,
+        productivity,
+        turnoverGrade,
+        vacancyGrade,
+        overallScore: Math.round(overallScore * 100) / 100,
+        overallGrade,
+        isLeadershipRisk,
+        isHighPerformer: overallGrade === 'A',
+      });
+    }
+
+    const ranked = [...raw].sort((a, b) => a.overallScore - b.overallScore);
+    return ranked.map((m, i) => ({ ...m, riskRank: i + 1 }));
+  }, [resignations, manpower, employees, candidates]);
+
+  const [expandedManager, setExpandedManager] = useState<string | null>(null);
+
+  const leadershipRisks = managers.filter(m => m.isLeadershipRisk);
+  const highPerformers = managers.filter(m => m.isHighPerformer);
+  const redAlertManagers = managers.filter(m => m.overallGrade === 'C' || m.overallGrade === 'D');
+  const avgScore = managers.length > 0
+    ? managers.reduce((s, m) => s + m.overallScore, 0) / managers.length
+    : 0;
+
+  const headerGradient = managers.some(m => m.overallGrade === 'D')
+    ? 'from-rose-900 via-rose-800 to-slate-900'
+    : managers.some(m => m.overallGrade === 'C')
+    ? 'from-amber-900 via-amber-800 to-slate-900'
+    : 'from-emerald-800 via-emerald-700 to-slate-800';
+
+  const offTargetRows = useMemo(
+    () => flattenOffTarget(managers, getManagerOffTargetRows),
+    [managers],
   );
 
-  return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-800 rounded-3xl p-8 md:p-10 text-white shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-purple-500/30 backdrop-blur rounded-xl flex items-center justify-center">
-                <UserCog className="w-5 h-5 text-purple-300" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-widest text-purple-300/70">Leadership Effectiveness</span>
-            </div>
-            <h2 className="text-2xl md:text-3xl font-black tracking-tight">Department Manager Scorecard</h2>
+  const renderDetail = (m: ManagerData) => {
+    const deptRes = resignations.filter(r => r.department === m.department);
+    const deptPipeline = candidates.filter(c => c.finalStatus === 'In Progress' && c.department === m.department);
+    const deptJoined = candidates.filter(c => c.finalStatus === 'Joined' && c.department === m.department);
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Position</p>
+            <p className="text-sm font-bold text-slate-800 mt-1">{m.position}</p>
           </div>
-          <div className="flex items-center gap-5">
-            <div className="flex flex-col items-center px-6 py-4 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">Avg Effectiveness</span>
-              <span className="text-3xl font-black">{avgScore.toFixed(1)}</span>
-              <span className="text-xs font-bold text-white/70 mt-1">/ 4.0</span>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Team Size</p>
+            <p className="text-lg font-black tabular-nums">{m.headcount}</p>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Turnover Grade</p>
+            <p className="text-lg font-black">{m.turnoverGrade}</p>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Vacancy Grade</p>
+            <p className="text-lg font-black">{m.vacancyGrade}</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-600">
+          Score: {m.overallScore.toFixed(2)} / 4.0 · {deptRes.length} resignations · {deptJoined.length} hires · {deptPipeline.length} in pipeline
+        </p>
+        {deptRes.length > 0 && (
+          <div className="overflow-x-auto max-h-40 overflow-y-auto">
+            <table className="w-full">
+              <tbody>
+                {deptRes.slice(0, 10).map((r, i) => (
+                  <tr key={i} className="border-t border-slate-100">
+                    <td className="px-4 py-2 text-sm font-bold text-slate-700">{r.name}</td>
+                    <td className="px-4 py-2 text-sm text-slate-500">{r.resignationDate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header */}
+      <div className={`bg-gradient-to-br ${headerGradient} rounded-2xl p-6 md:p-8 text-white shadow-lg`}>
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-2">Leadership Effectiveness</p>
+            <h2 className="text-xl md:text-2xl font-black tracking-tight">Department Manager Scorecard</h2>
+            <p className="text-sm text-white/60 mt-2">
+              {managers.length} managers · measures people leadership by department
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 flex-shrink-0">
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black">{avgScore.toFixed(1)}</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Avg Score</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur rounded-xl border border-white/10">
-                <span className="text-lg font-black text-emerald-400">{gradeA}</span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-white/50">A</span>
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur rounded-xl border border-white/10">
-                <span className="text-lg font-black text-blue-400">{gradeB}</span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-white/50">B</span>
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur rounded-xl border border-white/10">
-                <span className="text-lg font-black text-amber-400">{gradeC}</span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-white/50">C</span>
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur rounded-xl border border-white/10">
-                <span className="text-lg font-black text-rose-400">{gradeD}</span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-white/50">D</span>
-              </div>
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black text-rose-300">{leadershipRisks.length}</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Risk</p>
+            </div>
+            <div className="px-4 py-3 bg-white/10 rounded-xl border border-white/10 text-center">
+              <p className="text-2xl font-black text-emerald-300">{highPerformers.length}</p>
+              <p className="text-[10px] font-bold text-white/50 uppercase">Top (A)</p>
             </div>
           </div>
         </div>
+        {redAlertManagers.length > 0 && (
+          <div className="mt-5 flex items-center gap-3 px-4 py-3 bg-rose-500/25 rounded-xl border border-rose-400/30">
+            <Siren className="w-4 h-4 text-rose-200 flex-shrink-0 animate-pulse" />
+            <p className="text-sm font-bold text-rose-100">
+              LEADERSHIP RISK: {redAlertManagers.map(m => `${m.manager} (${m.overallGrade})`).join(', ')}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Score Weights */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Gauge className="w-5 h-5 text-purple-600" />
-          <h3 className="text-sm font-bold text-slate-800">Leadership Score Calculation</h3>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Gauge className="w-4 h-4 text-purple-500" />
+          <h3 className="text-sm font-bold text-slate-800">Leadership Score</h3>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          {Object.entries(SCORE_WEIGHTS).map(([key, weight]) => (
-            <div key={key} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
-              <p className="text-xl font-black text-slate-800 tabular-nums">{Math.round(weight * 100)}%</p>
-              <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mt-2">
-                <div className="h-full bg-purple-500 rounded-full" style={{ width: `${weight * 100}%` }} />
-              </div>
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            ['Turnover', 40],
+            ['Vacancy', 35],
+            ['Productivity', 25],
+          ] as const).map(([label, pct]) => (
+            <div key={label} className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p>
+              <p className="text-lg font-black text-slate-800">{pct}%</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Manager Table */}
       {managers.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-16 text-center">
-          <UserCog className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-lg font-bold text-slate-700">No Manager Data Available</p>
-          <p className="text-sm text-slate-400 mt-2">Data will appear once manpower records are loaded.</p>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+          <UserCog className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <p className="text-base font-bold text-slate-700">No Manager Data Available</p>
         </div>
       ) : (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-8 py-6 border-b border-slate-100 flex items-center gap-3">
-            <div className="w-2 h-7 bg-purple-500 rounded-full" />
-            <div>
-              <h3 className="text-xl font-bold text-slate-800">Manager Scorecard</h3>
-              <p className="text-slate-500 text-sm mt-0.5">Sortable — leadership effectiveness from live HR data</p>
+        <>
+          {/* Chairman Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+              <h3 className="text-base font-bold text-slate-800">Manager Scorecard</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Click a row for details · Score C & D = Leadership Risk</p>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/50">
-                  <SortHeader field="department" label="Department Head" />
-                  <SortHeader field="headcount" label="Headcount" align="right" />
-                  <SortHeader field="turnoverRate" label="Turnover" align="right" />
-                  <SortHeader field="vacancyRate" label="Vacancy" align="right" />
-                  <th className="px-5 py-4 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">Utilization</th>
-                  <SortHeader field="overallScore" label="Score" align="center" />
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((mgr, idx) => {
-                  const sc = scoreConfig[mgr.overallGrade];
-                  const isRedAlert = mgr.overallGrade === 'C' || mgr.overallGrade === 'D';
-                  const isActive = selectedMgr === mgr.department;
-                  return (
-                    <tr key={mgr.department} onClick={() => setSelectedMgr(isActive ? null : mgr.department)} className={`border-t border-slate-100 transition-colors cursor-pointer ${isActive ? 'ring-2 ring-indigo-200 ' : ''}${isRedAlert ? sc.bg : 'hover:bg-slate-50/50'} ${idx % 2 === 1 && !isRedAlert ? 'bg-slate-50/20' : ''}`}>
-                      {/* Department Head */}
-                      <td className="px-5 py-5">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${sc.bg} border ${sc.border}`}>
-                            <UserCog className={`w-5 h-5 ${sc.text}`} />
-                          </div>
-                          <div>
-                            <span className="font-bold text-slate-800 text-sm block">Dept Head</span>
-                            <span className="text-xs text-slate-400 font-medium">{mgr.department}</span>
-                          </div>
-                        </div>
-                      </td>
-                      {/* Headcount */}
-                      <td className="px-5 py-5 text-right">
-                        <span className="text-base font-black text-slate-900 tabular-nums">{mgr.headcount}</span>
-                        {mgr.budgeted > 0 && <span className="text-xs text-slate-400 ml-1">/ {mgr.budgeted}</span>}
-                      </td>
-                      {/* Turnover */}
-                      <td className="px-5 py-5 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <span className={`text-sm font-bold tabular-nums ${mgr.turnoverRate > 15 ? 'text-rose-600' : mgr.turnoverRate > 10 ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {mgr.turnoverRate.toFixed(1)}%
-                          </span>
-                          <span className={`text-[9px] font-bold ${scoreConfig[mgr.turnoverScore].text}`}>({mgr.turnoverScore})</span>
-                        </div>
-                      </td>
-                      {/* Vacancy */}
-                      <td className="px-5 py-5 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <span className={`text-sm font-bold tabular-nums ${mgr.vacancyRate > 12 ? 'text-rose-600' : mgr.vacancyRate > 7 ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {mgr.vacancyRate.toFixed(1)}%
-                          </span>
-                          <span className={`text-[9px] font-bold ${scoreConfig[mgr.vacancyScore].text}`}>({mgr.vacancyScore})</span>
-                        </div>
-                      </td>
-                      {/* Utilization */}
-                      <td className="px-5 py-5 text-center">
-                        <div className="inline-flex items-center gap-2">
-                          <span className={`text-sm font-bold tabular-nums ${mgr.utilizationRate < 75 ? 'text-rose-600' : mgr.utilizationRate < 85 ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {mgr.utilizationRate.toFixed(0)}%
-                          </span>
-                          <span className={`text-[9px] font-bold ${scoreConfig[mgr.utilizationScore].text}`}>({mgr.utilizationScore})</span>
-                        </div>
-                      </td>
-                      {/* Overall Score */}
-                      <td className="px-5 py-5">
-                        <div className="flex justify-center">
-                          {isRedAlert ? (
-                            <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border-2 ${sc.border} ${sc.bg} shadow-sm`}>
-                              <AlertTriangle className={`w-4 h-4 ${sc.text} animate-pulse`} />
-                              <span className={`text-lg font-black ${sc.text}`}>{mgr.overallGrade}</span>
-                              <span className={`text-[10px] font-bold uppercase tracking-wider ${sc.text}`}>{sc.label}</span>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Manager</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Turnover</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Vacancy</th>
+                    <th className="px-4 py-3 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">Productivity</th>
+                    <th className="px-4 py-3 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...managers].sort((a, b) => b.overallScore - a.overallScore).map((m) => {
+                    const gc = scoreConfig[m.overallGrade];
+                    const isRedAlert = m.overallGrade === 'C' || m.overallGrade === 'D';
+                    const isExpanded = expandedManager === m.department;
+                    return (
+                      <React.Fragment key={m.department}>
+                        <tr
+                          className={`border-t border-slate-100 cursor-pointer transition-colors ${isRedAlert ? gc.bg : 'hover:bg-slate-50/80'} ${isExpanded ? 'ring-1 ring-inset ring-indigo-200' : ''}`}
+                          onClick={() => setExpandedManager(isExpanded ? null : m.department)}
+                        >
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-3">
+                              {isRedAlert && <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />}
+                              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-xs font-bold text-purple-700 flex-shrink-0">
+                                {m.manager.charAt(0)}
+                              </div>
+                              <div>
+                                <span className="text-sm font-bold text-slate-800">{m.manager}</span>
+                                {m.isHighPerformer && (
+                                  <span className="ml-2 text-[10px] font-bold text-emerald-600">★ Top</span>
+                                )}
+                              </div>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-indigo-400 ml-auto" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />
+                              )}
                             </div>
-                          ) : (
-                            <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border ${sc.border} ${sc.bg}`}>
-                              <Award className={`w-4 h-4 ${sc.text}`} />
-                              <span className={`text-lg font-black ${sc.text}`}>{mgr.overallGrade}</span>
-                              <span className={`text-[10px] font-bold uppercase tracking-wider ${sc.text}`}>{sc.label}</span>
+                          </td>
+                          <td className="px-4 py-3.5 text-sm font-semibold text-slate-700">{m.department}</td>
+                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${m.turnoverRate >= 15 ? 'text-rose-600' : m.turnoverRate >= 10 ? 'text-amber-600' : 'text-slate-700'}`}>
+                            {m.turnoverRate.toFixed(0)}%
+                          </td>
+                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${m.vacancyRate >= 12 ? 'text-rose-600' : m.vacancyRate >= 7 ? 'text-amber-600' : 'text-slate-700'}`}>
+                            {m.vacancyRate.toFixed(0)}%
+                          </td>
+                          <td className="px-4 py-3.5 text-center"><GradeBadge grade={m.productivity} compact /></td>
+                          <td className="px-4 py-3.5">
+                            <div className="flex justify-center">
+                              {isRedAlert ? (
+                                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 ${gc.border} ${gc.bg}`}>
+                                  <AlertTriangle className={`w-3.5 h-3.5 ${gc.text} animate-pulse`} />
+                                  <span className={`text-base font-black ${gc.text}`}>{m.overallGrade}</span>
+                                </div>
+                              ) : (
+                                <GradeBadge grade={m.overallGrade} />
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Detail Section */}
-      {selectedMgr && (() => {
-        const m = managers.find(x => x.department === selectedMgr);
-        if (!m) return null;
-        const sc = scoreConfig[m.overallGrade];
-        const deptResignations = resignations.filter(r => r.department === m.department);
-        const deptManpower = manpower.filter(x => x.department === m.department);
-        return (
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-7 bg-purple-500 rounded-full" />
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">{m.department} — Manager Detail Breakdown</h3>
-                  <p className="text-slate-500 text-sm mt-0.5">Score {m.overallScore.toFixed(2)}/4.0 · Grade {m.overallGrade} ({sc.label}) · {m.headcount}/{m.budgeted} staff</p>
-                </div>
-              </div>
-              <button onClick={() => setSelectedMgr(null)} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                <ChevronUp className="w-4 h-4" />Close
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Headcount</p><p className="text-xl font-black text-slate-900 tabular-nums">{m.headcount} / {m.budgeted}</p></div>
-                <div className="p-4 bg-rose-50 rounded-xl border border-rose-100"><p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">Turnover Rate</p><p className="text-xl font-black text-rose-600 tabular-nums">{m.turnoverRate.toFixed(1)}%</p><p className="text-[10px] font-bold mt-1">Grade: {m.turnoverScore}</p></div>
-                <div className="p-4 bg-rose-50 rounded-xl border border-rose-100"><p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">Vacancy Rate</p><p className="text-xl font-black text-rose-600 tabular-nums">{m.vacancyRate.toFixed(1)}%</p><p className="text-[10px] font-bold mt-1">Grade: {m.vacancyScore}</p></div>
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Utilization</p><p className="text-xl font-black text-slate-900 tabular-nums">{m.utilizationRate.toFixed(0)}%</p><p className="text-[10px] font-bold mt-1">Grade: {m.utilizationScore}</p></div>
-              </div>
-              {deptManpower.length > 0 && (
-                <div>
-                  <p className="text-sm font-bold text-slate-700 mb-3">Position-level Breakdown</p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead><tr className="bg-slate-50/80">
-                        <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
-                        <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Budgeted</th>
-                        <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Actual</th>
-                        <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vacant</th>
-                      </tr></thead>
-                      <tbody>
-                        {deptManpower.map((p, i) => (
-                          <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                            <td className="px-4 py-3"><span className="text-sm font-bold text-slate-700">{p.position}</span></td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{p.budgeted}</td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{p.actual}</td>
-                            <td className="px-4 py-3 text-right text-sm font-black text-rose-600 tabular-nums">{Math.max(0, p.budgeted - p.actual)}</td>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-50/40">
+                            <td colSpan={6} className="px-6 py-4 border-t border-indigo-100">
+                              {renderDetail(m)}
+                            </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-              {deptResignations.length > 0 && (
-                <div>
-                  <p className="text-sm font-bold text-slate-700 mb-3">Resignation List ({deptResignations.length})</p>
-                  <div className="overflow-x-auto max-h-60 overflow-y-auto">
-                    <table className="w-full">
-                      <thead className="sticky top-0"><tr className="bg-slate-50/80">
-                        <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee</th>
-                        <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
-                        <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date</th>
-                      </tr></thead>
-                      <tbody>
-                        {deptResignations.slice(0, 30).map((r, i) => (
-                          <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                            <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center text-[10px] font-bold text-rose-600">{r.name.charAt(0)}</div><span className="text-sm font-bold text-slate-700">{r.name}</span></div></td>
-                            <td className="px-4 py-3 text-sm text-slate-600">{r.position || r.designation || '—'}</td>
-                            <td className="px-4 py-3 text-sm text-slate-500">{r.resignationDate}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-        );
-      })()}
 
-      {/* Leadership Ranking */}
-      {ranking.length > 0 && (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-2 h-7 bg-purple-500 rounded-full" />
-            <h3 className="text-xl font-bold text-slate-800">Leadership Effectiveness Ranking</h3>
-            <span className="text-sm text-slate-400 font-medium">— Best to worst</span>
-          </div>
-          <div className="space-y-3">
-            {ranking.map((mgr, idx) => {
-              const sc = scoreConfig[mgr.overallGrade];
-              const isRedAlert = mgr.overallGrade === 'C' || mgr.overallGrade === 'D';
-              return (
-                <div key={mgr.department} className={`flex items-center gap-4 p-4 rounded-2xl border ${isRedAlert ? sc.border : 'border-slate-100'} ${isRedAlert ? sc.bg : 'bg-slate-50/50'}`}>
-                  <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg ${
-                    idx === 0 ? 'bg-emerald-100 text-emerald-600' :
-                    idx === 1 ? 'bg-blue-100 text-blue-600' :
-                    idx === ranking.length - 1 ? 'bg-rose-100 text-rose-600' :
-                    'bg-slate-100 text-slate-500'
-                  }`}>
-                    {idx + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-800 text-sm truncate">Dept Head — {mgr.department}</p>
-                    <p className="text-xs text-slate-400 font-medium">{mgr.headcount} staff · {mgr.turnoverRate.toFixed(1)}% turnover · {mgr.vacancyRate.toFixed(1)}% vacancy</p>
-                  </div>
-                  <div className="hidden md:flex items-center gap-3 w-48">
-                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${sc.bar} rounded-full transition-all duration-1000`} style={{ width: `${(mgr.overallScore / 4) * 100}%` }} />
+          {/* Leadership Risk Indicators */}
+          <div className="bg-white rounded-2xl border-2 border-rose-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-rose-50/80 border-b border-rose-100 flex items-center gap-2">
+              <TrendingDown className="w-4 h-4 text-rose-500" />
+              <h3 className="text-base font-bold text-slate-800">Leadership Risk Indicators</h3>
+              <span className="text-xs text-slate-400">{leadershipRisks.length} flagged</span>
+            </div>
+            {leadershipRisks.length === 0 ? (
+              <p className="px-6 py-8 text-sm text-slate-500 text-center">No leadership risks identified.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {leadershipRisks.map((m) => (
+                  <li key={m.department} className="px-6 py-3.5 flex items-center gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-slate-800">{m.manager} — {m.department}</p>
+                      <p className="text-xs text-slate-500">
+                        Score {m.overallGrade} · Turnover {m.turnoverRate.toFixed(0)}% · Vacancy {m.vacancyRate.toFixed(0)}%
+                      </p>
                     </div>
-                    <span className="text-sm font-black text-slate-700 tabular-nums w-10 text-right">{mgr.overallScore.toFixed(1)}</span>
-                  </div>
-                  <div className="flex-shrink-0">
-                    {isRedAlert ? (
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${sc.badge}`}>
-                        <AlertTriangle className={`w-3.5 h-3.5 ${sc.text}`} />
-                        <span className={`text-sm font-black ${sc.text}`}>{mgr.overallGrade}</span>
-                      </div>
-                    ) : (
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${sc.badge}`}>
-                        <Award className={`w-3.5 h-3.5 ${sc.text}`} />
-                        <span className={`text-sm font-black ${sc.text}`}>{mgr.overallGrade}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                    <GradeBadge grade={m.overallGrade} compact />
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-        </div>
+
+          {/* Succession Pipeline Candidates */}
+          {highPerformers.length > 0 && (
+            <div className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Crown className="w-4 h-4 text-emerald-500" />
+                <h3 className="text-base font-bold text-slate-800">Succession Pipeline Candidates</h3>
+                <span className="text-xs text-slate-400">Score A managers</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {highPerformers.map(m => (
+                  <div key={m.department} className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50/50 border border-emerald-100">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700">
+                      {m.manager.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{m.manager}</p>
+                      <p className="text-xs text-slate-500">{m.department} · Score {m.overallGrade}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
+
+      <OffTargetPanel title="Off-Target Managers" rows={offTargetRows} />
 
       {/* Ownership */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-2 h-7 bg-purple-500 rounded-full" />
-          <h3 className="text-xl font-bold text-slate-800">Ownership</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="flex items-center gap-4 p-6 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center">
-              <UserCog className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Primary</p>
-              <p className="text-lg font-bold text-slate-800">HR GM</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Overall leadership effectiveness oversight</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 p-6 bg-slate-50 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Co-Owner</p>
-              <p className="text-lg font-bold text-slate-800">Respective Functional Directors</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Direct manager accountability</p>
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-2 px-2 text-xs text-slate-500">
+        <span className="flex items-center gap-1.5"><UserCog className="w-3.5 h-3.5" /><strong className="text-slate-700">Accountable:</strong> HR GM</span>
+        <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /><strong className="text-slate-700">Co-Owner:</strong> Functional Directors</span>
       </div>
     </div>
   );

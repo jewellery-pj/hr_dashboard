@@ -1,7 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Resignation } from '../data/mockData';
-import { UserMinus, X, Info, MessageSquare, Search, Filter, PieChart as PieIcon, AlignLeft } from 'lucide-react';
+import { normalizeExitReason } from './ExitAnalytics';
+import { normalizeDateForCompare } from '../utils/dateUtils';
+import { UserMinus, X, Info, MessageSquare, Search, Filter, PieChart as PieIcon, AlignLeft, UserCog } from 'lucide-react';
+import {
+  OperationalShell,
+  OperationalHeader,
+  OperationalSection,
+  OperationalFilters,
+  FilterField,
+  filterSelectClass,
+  filterInputClass,
+  OperationalTableWrap,
+  OperationalTable,
+  OperationalThead,
+  OperationalTh,
+  OperationalOwnership,
+} from './OperationalLayout';
 
 interface ResignationDashboardProps {
   resignations: Resignation[];
@@ -79,33 +95,7 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
       
       let matchesLastWorkingDate = true;
       if (lastWorkingDateFilter && r.resignationDate) {
-        // Normalize date formats for comparison
-        const normalizeDate = (dateStr: string) => {
-          // Handle DD.MM.YYYY format (e.g., '15.3.2026')
-          if (dateStr.includes('.')) {
-            const parts = dateStr.split('.');
-            if (parts.length === 3) {
-              const day = parts[0].padStart(2, '0');
-              const month = parts[1].padStart(2, '0');
-              const year = parts[2];
-              return `${year}-${month}-${day}`;
-            }
-          }
-          // Handle MM/DD/YY format (e.g., '12/26/25')
-          if (dateStr.includes('/')) {
-            const parts = dateStr.split('/');
-            if (parts.length === 3) {
-              const month = parts[0].padStart(2, '0');
-              const day = parts[1].padStart(2, '0');
-              const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-              return `${year}-${month}-${day}`;
-            }
-          }
-          // Already in YYYY-MM-DD format
-          return dateStr;
-        };
-        
-        const normalizedDataDate = normalizeDate(r.resignationDate);
+        const normalizedDataDate = normalizeDateForCompare(r.resignationDate);
         matchesLastWorkingDate = normalizedDataDate === lastWorkingDateFilter;
       }
       
@@ -119,8 +109,8 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
 
   const stats = useMemo(() => {
     return {
-      total: resignations.length,
-      filtered: filteredResignations.length
+      inPeriod: resignations.length,
+      filtered: filteredResignations.length,
     };
   }, [resignations, filteredResignations]);
 
@@ -157,345 +147,205 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
 
   const reasonData = useMemo(() => {
     const counts = filteredResignations.reduce((acc, r) => {
-      const reason = r.comment || r.reason || 'No Reason Provided';
-      if (reason !== 'No Reason Provided' && reason !== 'Unknown') {
-        acc[reason] = (acc[reason] || 0) + 1;
-      }
+      const raw = r.comment || r.reason || r.remarks || '';
+      const reason = normalizeExitReason(raw);
+      acc[reason] = (acc[reason] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
     return Object.entries(counts)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => (b.count as number) - (a.count as number))
-      .slice(0, 10); // Top 10 reasons
+      .slice(0, 10);
   }, [filteredResignations]);
 
-  return (
-    <div className="space-y-8">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard 
-          title="Total Resignations" 
-          value={stats.total} 
-          icon={<UserMinus className="w-6 h-6 text-rose-500" />}
-          trend="All time recorded"
-        />
-        <StatCard 
-          title="Filtered Count" 
-          value={stats.filtered} 
-          icon={<Filter className="w-6 h-6 text-indigo-500" />}
-          trend="Based on current filters"
-        />
-      </div>
+  const deptSummary = useMemo(() => {
+    const total = filteredResignations.length || 1;
+    return deptData.map(d => {
+      const deptRows = filteredResignations.filter(r => r.department === d.name);
+      const reasonCounts = deptRows.reduce((acc, r) => {
+        const reason = normalizeExitReason(r.comment || r.reason || r.remarks || '');
+        acc[reason] = (acc[reason] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      const topReason = Object.entries(reasonCounts).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '—';
+      return { ...d, pct: (d.count / total) * 100, topReason };
+    });
+  }, [deptData, filteredResignations]);
 
-      {/* Filters Section */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Filters</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Department</label>
-            <select 
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            >
+  const periodLabel = externalMonthFilter === 'All' ? 'All months' : externalMonthFilter;
+
+  return (
+    <OperationalShell>
+      <OperationalHeader
+        eyebrow="Staff Exit"
+        title="Resignation Dashboard"
+        subtitle={`${stats.inPeriod} resignations · ${periodLabel} · live data`}
+        gradient="rose"
+        metrics={[
+          { value: stats.inPeriod, label: 'In Period' },
+          { value: stats.filtered, label: 'Filtered' },
+          { value: deptData.length, label: 'Departments' },
+          { value: reasonData[0]?.name?.slice(0, 8) || '—', label: 'Top Reason' },
+        ]}
+      />
+
+      <OperationalSection title="Department Summary" subtitle="Department | Count | % | Top Reason">
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Department</OperationalTh>
+              <OperationalTh align="right">Count</OperationalTh>
+              <OperationalTh align="right">%</OperationalTh>
+              <OperationalTh>Top Reason</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {deptSummary.map(row => (
+                <tr key={row.name} className="border-t border-slate-100 hover:bg-slate-50/80">
+                  <td className="px-4 py-3 text-sm font-bold text-slate-800">{row.name}</td>
+                  <td className="px-4 py-3 text-sm font-black text-right tabular-nums">{row.count}</td>
+                  <td className="px-4 py-3 text-sm font-bold text-right tabular-nums text-slate-600">{row.pct.toFixed(0)}%</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-600">{row.topReason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
+
+      <OperationalFilters>
+        <FilterField label="Department">
+            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className={filterSelectClass}>
               {departments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Location</label>
-            <select 
-              value={locFilter}
-              onChange={(e) => setLocFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            >
+          </FilterField>
+          <FilterField label="Location">
+            <select value={locFilter} onChange={(e) => setLocFilter(e.target.value)} className={filterSelectClass}>
               {locations.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Status</label>
-            <select 
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            >
+          </FilterField>
+          <FilterField label="Status">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={filterSelectClass}>
               {statuses.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Service Month</label>
-            <select 
-              value={serviceMonthFilter}
-              onChange={(e) => setServiceMonthFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            >
+          </FilterField>
+          <FilterField label="Service Month">
+            <select value={serviceMonthFilter} onChange={(e) => setServiceMonthFilter(e.target.value)} className={filterSelectClass}>
               {serviceMonths.map(sm => <option key={sm} value={sm}>{sm}</option>)}
             </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Last Working Date</label>
-            <input 
-              type="date"
-              value={lastWorkingDateFilter}
-              onChange={(e) => setLastWorkingDateFilter(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500 ml-1">Search Comment</label>
+          </FilterField>
+          <FilterField label="Last Working Date">
+            <input type="date" value={lastWorkingDateFilter} onChange={(e) => setLastWorkingDateFilter(e.target.value)} className={filterInputClass} />
+          </FilterField>
+          <FilterField label="Search">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input 
-                type="text"
-                placeholder="Search comments..."
-                value={commentSearch}
-                onChange={(e) => setCommentSearch(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-              />
+              <input type="text" placeholder="Comment..." value={commentSearch} onChange={(e) => setCommentSearch(e.target.value)} className={`${filterInputClass} pl-9`} />
             </div>
-          </div>
-        </div>
-      </div>
+          </FilterField>
+      </OperationalFilters>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Status Donut Chart */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <PieIcon className="w-5 h-5 text-indigo-500" />
-            <h3 className="text-lg font-semibold text-slate-800">Resignation Status</h3>
-          </div>
-          <div className="h-[300px]">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <OperationalSection title="Resignation Status" subtitle="Distribution by status">
+          <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie
-                  data={statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
+                <Pie data={statusData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
                   {statusData.map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip 
-                  contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                />
-                <Legend verticalAlign="bottom" height={36}/>
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                <Legend verticalAlign="bottom" height={36} />
               </PieChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </OperationalSection>
 
-        {/* Department Distribution */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <AlignLeft className="w-5 h-5 text-indigo-500" />
-            <h3 className="text-lg font-semibold text-slate-800">Department Distribution</h3>
-          </div>
-          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {deptData.map((stat, index) => {
-              const percentage = filteredResignations.length > 0 ? ((stat.count / filteredResignations.length) * 100).toFixed(1) : '0.0';
-              return (
-                <div key={stat.name} className="flex items-center justify-between group py-1">
-                  <div className="flex items-center gap-3">
-                    <div 
-                      className="w-3 h-3 rounded-full shrink-0" 
-                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                    />
-                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors truncate max-w-[180px]">
-                      {stat.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <span className="text-sm font-bold text-slate-900">{stat.count}</span>
-                    <span className="text-xs font-medium text-slate-400 w-12 text-right">({percentage}%)</span>
-                  </div>
-                </div>
-              );
-            })}
-            
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between sticky bottom-0 bg-white">
-              <span className="text-sm font-bold text-slate-900">Total</span>
-              <span className="text-sm font-bold text-slate-900">{filteredResignations.length}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Position Distribution */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-6">
-            <AlignLeft className="w-5 h-5 text-indigo-500" />
-            <h3 className="text-lg font-semibold text-slate-800">Resignations by Position</h3>
-          </div>
-          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {positionStats.map((stat, index) => {
-              const percentage = filteredResignations.length > 0 ? ((stat.count / filteredResignations.length) * 100).toFixed(1) : '0.0';
-              return (
-                <div key={stat.name} className="flex items-center justify-between group py-1">
-                  <div className="flex items-center gap-3">
-                    <div 
-                      className="w-3 h-3 rounded-full shrink-0" 
-                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                    />
-                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors truncate max-w-[180px]">
-                      {stat.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <span className="text-sm font-bold text-slate-900">{stat.count}</span>
-                    <span className="text-xs font-medium text-slate-400 w-12 text-right">({percentage}%)</span>
-                  </div>
-                </div>
-              );
-            })}
-            
-            <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between sticky bottom-0 bg-white">
-              <span className="text-sm font-bold text-slate-900">Total</span>
-              <span className="text-sm font-bold text-slate-900">{filteredResignations.length}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Reasons/Comments Chart */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-          <div className="flex items-center gap-2 mb-6">
-            <MessageSquare className="w-5 h-5 text-indigo-500" />
-            <h3 className="text-lg font-semibold text-slate-800">Top Resignation Reasons (Comments)</h3>
-          </div>
-          <div className="h-[400px]">
+        <OperationalSection title="Exit Reasons" subtitle="Normalized reason categories">
+          <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={reasonData} layout="vertical" margin={{ left: 40, right: 40 }}>
+              <BarChart data={reasonData} layout="vertical" margin={{ left: 20, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{fill: '#64748b', fontSize: 11}} 
-                  width={180}
-                  tickFormatter={(value) => value.length > 30 ? `${value.substring(0, 30)}...` : value}
-                />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}}
-                  contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                />
-                <Bar dataKey="count" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={25} />
+                <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                <Bar dataKey="count" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </OperationalSection>
+      </div>
 
-        {/* By Department Position Count */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-slate-800">By Department</h3>
-            <div className="relative">
-              <select
-                value={selectedDeptForPositions}
-                onChange={(e) => setSelectedDeptForPositions(e.target.value)}
-                className="appearance-none bg-slate-50 border border-slate-100 rounded-xl px-6 py-2 pr-10 text-sm font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer"
-              >
-                {actualDepartments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                <Filter className="w-4 h-4 text-indigo-400" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-50/50 rounded-3xl p-8 border border-slate-100">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">
-              <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{selectedDeptForPositions}</h4>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{totalStaffInDept} TOTAL STAFF</span>
-            </div>
-
-            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-4 custom-scrollbar">
-              {positionsByDept.map((pos) => (
-                <div key={pos.name} className="flex items-center justify-between py-2 group">
-                  <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 transition-colors">
-                    {pos.name}
-                  </span>
-                  <div className="bg-white border border-slate-200 rounded-lg px-4 py-1.5 shadow-sm min-w-[48px] text-center">
-                    <span className="text-sm font-bold text-slate-900">{pos.count}</span>
-                  </div>
-                </div>
-              ))}
-              {positionsByDept.length === 0 && (
-                <div className="text-center py-10 text-slate-400 italic text-sm">
-                  No data available for this department
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Resignations Table */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-slate-800">Resignations List ({stats.filtered})</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-50">
-                  <th className="pb-4 font-medium">Name</th>
-                  <th className="pb-4 font-medium">Department</th>
-                  <th className="pb-4 font-medium">Designation</th>
-                  <th className="pb-4 font-medium">Location</th>
-                  <th className="pb-4 font-medium">Service Month</th>
-                  <th className="pb-4 font-medium">Last Working Date</th>
-                  <th className="pb-4 font-medium">Status</th>
-                  <th className="pb-4 font-medium">Comment</th>
-                  <th className="pb-4 font-medium text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredResignations.slice(0, 50).map((res) => (
-                  <tr key={res.id} className="group hover:bg-slate-50 transition-colors">
-                    <td className="py-4 font-medium text-slate-700">{res.name}</td>
-                    <td className="py-4 text-slate-600">{res.department}</td>
-                    <td className="py-4 text-slate-600">{res.designation || res.position}</td>
-                    <td className="py-4 text-slate-600">{res.location || '-'}</td>
-                    <td className="py-4 text-slate-600 font-medium">{res.serviceMonth || '-'}</td>
-                    <td className="py-4 text-slate-600">{res.resignationDate}</td>
-                    <td className="py-4">
-                      <span className={`px-2 py-1 rounded-md text-xs font-medium ${
-                        res.resignStatus === 'Dismiss' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'
-                      }`}>
-                        {res.resignStatus || 'Resign'}
-                      </span>
-                    </td>
-                    <td className="py-4 text-slate-600 max-w-[200px] truncate">
-                      <button 
-                        onClick={() => setSelectedResignation(res)}
-                        className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 transition-colors"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        <span className="truncate">{res.comment || res.reason}</span>
-                      </button>
-                    </td>
-                    <td className="py-4 text-center">
-                      <button 
-                        onClick={() => setSelectedResignation(res)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                        title="View Full Details"
-                      >
-                        <Info className="w-4 h-4" />
-                      </button>
-                    </td>
+      <OperationalSection
+        title="Resignations by Position"
+        subtitle={`${selectedDeptForPositions || '—'} · ${totalStaffInDept} resignations`}
+        headerAction={
+          <select
+            value={selectedDeptForPositions}
+            onChange={(e) => setSelectedDeptForPositions(e.target.value)}
+            className={`${filterSelectClass} font-semibold text-indigo-600 min-w-[140px]`}
+          >
+            {actualDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        }
+      >
+        {positionsByDept.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-8">No data for this department</p>
+        ) : (
+          <OperationalTableWrap>
+            <OperationalTable>
+              <OperationalThead>
+                <OperationalTh>Position</OperationalTh>
+                <OperationalTh align="right">Count</OperationalTh>
+              </OperationalThead>
+              <tbody>
+                {positionsByDept.map(pos => (
+                  <tr key={pos.name} className="border-t border-slate-100">
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-700">{pos.name}</td>
+                    <td className="px-4 py-3 text-sm font-black text-right tabular-nums">{pos.count}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+            </OperationalTable>
+          </OperationalTableWrap>
+        )}
+      </OperationalSection>
+
+      <OperationalSection title="Resignation Registry" subtitle={`${stats.filtered} records · click for detail`}>
+        <OperationalTableWrap>
+          <OperationalTable>
+            <OperationalThead>
+              <OperationalTh>Name</OperationalTh>
+              <OperationalTh>Department</OperationalTh>
+              <OperationalTh>Designation</OperationalTh>
+              <OperationalTh>Last Date</OperationalTh>
+              <OperationalTh>Status</OperationalTh>
+              <OperationalTh>Reason</OperationalTh>
+            </OperationalThead>
+            <tbody>
+              {filteredResignations.slice(0, 50).map(res => (
+                <tr key={res.id} className="border-t border-slate-100 hover:bg-slate-50/80 cursor-pointer" onClick={() => setSelectedResignation(res)}>
+                  <td className="px-4 py-3 text-sm font-bold text-slate-800">{res.name}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{res.department}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{res.designation || res.position}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{res.resignationDate}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${res.resignStatus === 'Dismiss' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                      {res.resignStatus || 'Resign'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600 max-w-[180px] truncate">{normalizeExitReason(res.comment || res.reason || '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </OperationalTable>
+        </OperationalTableWrap>
+      </OperationalSection>
+
+      <OperationalOwnership items={[
+        { icon: UserMinus, label: 'Primary', value: 'HR Employee Relations' },
+        { icon: UserCog, label: 'Co-Owner', value: 'Department Heads' },
+      ]} />
 
       {/* Details Modal */}
       {selectedResignation && (
@@ -557,7 +407,7 @@ export const ResignationDashboard: React.FC<ResignationDashboardProps> = ({ resi
           </div>
         </div>
       )}
-    </div>
+    </OperationalShell>
   );
 };
 
@@ -573,22 +423,5 @@ const DetailItem = ({ label, value, isStatus }: { label: string; value?: string;
     ) : (
       <p className="text-slate-800 font-semibold">{value || '-'}</p>
     )}
-  </div>
-);
-
-const StatCard = ({ title, value, icon, trend }: { title: string; value: string | number; icon: React.ReactNode; trend: string }) => (
-  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-    <div className="flex items-center justify-between mb-4">
-      <div className="p-2 bg-slate-50 rounded-xl">
-        {icon}
-      </div>
-    </div>
-    <div>
-      <h4 className="text-slate-500 text-sm font-medium">{title}</h4>
-      <div className="flex items-baseline gap-2 mt-1">
-        <span className="text-2xl font-bold text-slate-900">{value}</span>
-      </div>
-      <p className="text-xs text-slate-400 mt-2">{trend}</p>
-    </div>
   </div>
 );

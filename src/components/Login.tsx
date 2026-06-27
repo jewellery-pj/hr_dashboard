@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, User } from 'lucide-react';
+import { filterInputClass } from './OperationalLayout';
 
 interface LoginProps {
   onLogin: (username: string) => void;
@@ -31,7 +32,7 @@ export default function Login({ onLogin }: LoginProps) {
       } else {
         setError(data.error || 'Login failed');
       }
-    } catch (err) {
+    } catch {
       setError('Connection error. Please try again.');
     } finally {
       setLoading(false);
@@ -39,65 +40,71 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg mx-auto mb-4">
-            <Lock className="w-8 h-8" />
+    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-8 pt-10 pb-7 border-b border-slate-100 text-center">
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">29 JEWELLERY</h1>
+            <p className="text-base font-bold text-slate-700 mt-3">HR Executive Dashboard 2.0</p>
+            <p className="text-sm text-slate-500 mt-2">Sign in to continue</p>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900">Welcome Back</h1>
-          <p className="text-slate-500 mt-2">Sign in to access the HR Dashboard</p>
+
+          <form onSubmit={handleSubmit} className="p-8 space-y-5">
+            <div className="space-y-1">
+              <label htmlFor="username" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-0.5">
+                Username
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  className={`${filterInputClass} pl-9`}
+                  placeholder="Username"
+                  autoComplete="username"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label htmlFor="password" className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-0.5">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className={`${filterInputClass} pl-9`}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-sm font-medium text-rose-700">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Username</label>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                placeholder="Enter your username"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                placeholder="Enter your password"
-                required
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-600 px-4 py-3 rounded-xl text-sm font-medium">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center text-sm text-slate-500">
-          {/* <p>Default credentials: admin / admin123</p> */}
-        </div>
+        <p className="text-center text-xs text-slate-400 mt-4">HR Analytics · Live sheet data</p>
       </div>
     </div>
   );

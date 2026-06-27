@@ -1,5 +1,6 @@
 import Papa from 'papaparse';
 import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData, EmployeeRecord } from '../data/mockData';
+import { isStageCompleted, monthFromResignationDate, normalizeMonth } from '../utils/dateUtils';
 
 const RECRUITMENT_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=0';
 const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=421155818';
@@ -13,20 +14,6 @@ const parseNumber = (val: any): number => {
   const cleaned = val.toString().replace(/[^0-9.-]/g, '');
   const parsed = parseInt(cleaned);
   return isNaN(parsed) ? 0 : parsed;
-};
-
-const normalizeMonth = (m: string): string => {
-  if (!m) return 'Mar';
-  const lower = m.toLowerCase().trim();
-  const monthsMap: Record<string, string> = {
-    'january': 'Jan', 'february': 'Feb', 'march': 'Mar', 'april': 'Apr',
-    'may': 'May', 'june': 'Jun', 'july': 'Jul', 'august': 'Aug',
-    'september': 'Sep', 'october': 'Oct', 'november': 'Nov', 'december': 'Dec',
-    'jan': 'Jan', 'feb': 'Feb', 'mar': 'Mar', 'apr': 'Apr',
-    'jun': 'Jun', 'jul': 'Jul', 'aug': 'Aug', 'sep': 'Sep',
-    'oct': 'Oct', 'nov': 'Nov', 'dec': 'Dec'
-  };
-  return monthsMap[lower] || m;
 };
 
 export const fetchExcelData = (): Promise<Candidate[]> => {
@@ -81,13 +68,13 @@ export const fetchExcelData = (): Promise<Candidate[]> => {
             const joinedDate = getVal(['Joined Date', 'Join Date', 'New Join Date', 'ဝင်ရောက်သည့်ရက်']);
             
             const sentToHODVal = getVal(['Sent to HOD', 'HOD', 'HOD သို့ ပေးပို့ပြီး', 'HOD Sent']);
-            const sentToHOD = sentToHODVal?.toLowerCase() === 'yes' || sentToHODVal === '1' || sentToHODVal?.toLowerCase() === 'y' || !!sentToHODVal;
+            const sentToHOD = isStageCompleted(sentToHODVal);
 
             const firstIntVal = getVal(['1st Interview', 'ပထမအကြိမ် အင်တာဗျူး', 'First Interview', '1st Int']);
-            const firstInterview = firstIntVal?.toLowerCase() === 'yes' || firstIntVal === '1' || firstIntVal?.toLowerCase() === 'y' || !!firstIntVal;
+            const firstInterview = isStageCompleted(firstIntVal);
 
             const secondIntVal = getVal(['2nd Interview', 'ဒုတိယအကြိမ် အင်တာဗျူး', 'Second Interview', '2nd Int']);
-            const secondInterview = secondIntVal?.toLowerCase() === 'yes' || secondIntVal === '1' || secondIntVal?.toLowerCase() === 'y' || !!secondIntVal;
+            const secondInterview = isStageCompleted(secondIntVal);
 
             const finalStatusVal = getVal(['Final Status', 'နောက်ဆုံးအခြေအနေ', 'Status', 'Result']) || 'In Progress';
             let finalStatus: Candidate['finalStatus'] = 'In Progress';
@@ -126,31 +113,13 @@ export const fetchResignationData = (): Promise<Resignation[]> => {
       header: true,
       complete: (results) => {
         const data = results.data as any[];
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         
         const resignations: Resignation[] = data
           .filter(row => row.Name || row['အမည်'] || row.Department || row['ဌာန'])
           .map((row, index) => {
             const rawDate = row['Last Working D'] || row['Last Working Date'] || row['Resignation Date'] || row['ထွက်သည့်ရက်'] || row['Date'] || '';
-            let month = row.Month || row['လ'] || 'Unknown';
-            
-            // Try to extract month from date if missing
-            if (month === 'Unknown' && rawDate) {
-              const dateParts = rawDate.split(/[./-]/);
-              if (dateParts.length >= 2) {
-                // The user says format is mm/dd/yyyy or dd/mm/yyyy
-                // Let's try to be smart. If first part > 12, it's dd.
-                let mIdx = -1;
-                const p1 = parseInt(dateParts[0]);
-                const p2 = parseInt(dateParts[1]);
-                if (p1 > 12) mIdx = p2 - 1;
-                else mIdx = p1 - 1;
-
-                if (mIdx >= 0 && mIdx < 12) {
-                  month = months[mIdx];
-                }
-              }
-            }
+            const rawMonth = row.Month || row['လ'] || '';
+            let month = rawMonth ? normalizeMonth(rawMonth) : monthFromResignationDate(rawDate);
 
             return {
               id: `res-${index + 1}`,
@@ -190,28 +159,13 @@ export const fetchExitInterviewData = (): Promise<ExitInterview[]> => {
       header: true,
       complete: (results) => {
         const data = results.data as any[];
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         
         const exitInterviews: ExitInterview[] = data
           .filter(row => row.Name || row['Employee Name'] || row['အမည်'])
           .map((row, index) => {
             const rawDate = row['Resignation Date'] || row['Date'] || row['ထွက်သည့်ရက်'] || '';
-            let month = row.Month || row['လ'] || 'Unknown';
-            
-            if (month === 'Unknown' && rawDate) {
-              const dateParts = rawDate.split(/[./-]/);
-              if (dateParts.length >= 2) {
-                let mIdx = -1;
-                const p1 = parseInt(dateParts[0]);
-                const p2 = parseInt(dateParts[1]);
-                if (p1 > 12) mIdx = p2 - 1;
-                else mIdx = p1 - 1;
-
-                if (mIdx >= 0 && mIdx < 12) {
-                  month = months[mIdx];
-                }
-              }
-            }
+            const rawMonth = row.Month || row['လ'] || '';
+            let month = rawMonth ? normalizeMonth(rawMonth) : monthFromResignationDate(rawDate);
 
             return {
               id: `exit-${index + 1}`,
@@ -264,11 +218,10 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
           const branch = row[6] || 'Unknown';
           const loc = row[7] || 'Unknown';
           const gender = row[8] || 'Unknown';
-          const month = row[11] || 'Mar'; // Assuming month might be further right or default
 
           if (dept === 'Unknown' && pos === 'Unknown') return acc;
 
-          const key = `${dept}|${pos}|${loc}`;
+          const key = `${dept}|${pos}|${loc}|${gender}`;
           if (!acc[key]) {
             acc[key] = {
               department: dept,
@@ -276,7 +229,7 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
               shopLocation: loc,
               branch: branch,
               gender: gender,
-              month: month,
+              month: 'All',
               actual: 0
             };
           }
@@ -345,23 +298,22 @@ export const fetchJobNetData = (): Promise<JobNetData[]> => {
         // P(15): Joined Date
 
         const jobNetData: JobNetData[] = rows
-          .filter(row => row[1] && row[1].toString().trim() !== '') // Filter out rows without names (column B, index 1)
+          .filter(row => row[1] && row[1].toString().trim() !== '')
           .map((row, index) => ({
             id: `jobnet-${index + 1}`,
-            name: row[2] || 'Unknown',
-            position: row[3] || 'Unknown',
-            department: row[4] || 'Unknown',
+            name: row[1] || 'Unknown',
+            position: row[2] || 'Unknown',
             phNo: row[3] || '',
-            cvReceivedDate: row[1] || '',
-            firstInterviewDate: row[7] || '',
+            department: row[4] || 'Unknown',
+            cvReceivedDate: row[5] || '',
+            firstInterviewDate: row[6] || '',
             time: row[7] || '',
             interviewScore: parseNumber(row[8]),
-            secondInterviewDate: row[11] || '',
+            secondInterviewDate: row[9] || row[11] || '',
             remark: row[16] || '',
             joinedDate: row[15] || '',
             offer: row[14] || '',
             မှတ်ချက်: row[13] || '',
-           
           }));
 
         console.log(`Fetched ${jobNetData.length} records from Google Sheet`);

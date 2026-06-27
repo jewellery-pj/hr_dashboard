@@ -1,5 +1,6 @@
 import React from 'react';
 import { Candidate } from '../data/mockData';
+import { sortByDate } from '../utils/dateUtils';
 
 interface PivotTable2Props {
   candidates: Candidate[];
@@ -7,7 +8,7 @@ interface PivotTable2Props {
 
 export const PivotTable2: React.FC<PivotTable2Props> = ({ candidates }) => {
   // Get unique dates, departments, and positions
-  const dates = Array.from(new Set(candidates.map(c => c.date))).sort() as string[];
+  const dates = Array.from(new Set(candidates.map(c => c.date))).sort(sortByDate) as string[];
   const departments = Array.from(new Set(candidates.map(c => c.department))).sort() as string[];
   const positions = Array.from(new Set(candidates.map(c => c.position))).sort() as string[];
 
@@ -43,12 +44,12 @@ export const PivotTable2: React.FC<PivotTable2Props> = ({ candidates }) => {
   });
 
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-slate-800">PivotTable2 (Date & Dept vs Position)</h3>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+        <h3 className="text-base font-bold text-slate-800">CV Received by Date & Department</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Pivot · Date & Dept vs Position</p>
       </div>
-      
-      <div className="overflow-x-auto">
+      <div className="p-6 overflow-hidden">
         <table className="w-full border-collapse text-[11px]">
           <thead>
             {/* Top Header */}

@@ -5,9 +5,7 @@ import {
   ShieldCheck,
   UserPlus,
   AlertTriangle,
-  ArrowRight,
   UserCog,
-  Gauge,
   Activity,
   CheckCircle2,
   XCircle,
@@ -16,55 +14,139 @@ import {
   ChevronUp,
   Building2,
   Calendar,
+  Clock,
+  Crown,
+  Siren,
+  ArrowRight,
+  Briefcase,
+  Store,
+  Calculator,
+  LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
-import { Candidate, Resignation, Manpower } from '../data/mockData';
+import { Candidate, Resignation, Manpower, EmployeeRecord } from '../data/mockData';
+import {
+  OperationalShell,
+  OperationalHeader,
+  OperationalSection,
+  OperationalAlert,
+  OperationalTableWrap,
+  OperationalTable,
+  OperationalThead,
+  OperationalTh,
+  OperationalOwnership,
+} from './OperationalLayout';
 
 interface ChairmanSummaryProps {
   candidates: Candidate[];
   resignations: Resignation[];
   manpower: Manpower[];
+  employees: EmployeeRecord[];
+  selectedMonth?: string;
+  onNavigate?: (tab: string) => void;
 }
 
 type Status = 'green' | 'red' | 'yellow';
-type TrendDir = 'up' | 'down' | 'flat';
 
 interface KpiRow {
   kpi: string;
   current: string;
-  target: string;
+  shouldBe: string;
+  verdict: string;
   status: Status;
-  trend: TrendDir;
-  trendValue: string;
   icon: React.ElementType;
   category: string;
+  hasData: boolean;
 }
 
-function getStatus(value: number, target: number, higherIsBetter: boolean): Status {
-  if (higherIsBetter) {
-    if (value >= target) return 'green';
-    if (value >= target * 0.8) return 'yellow';
-    return 'red';
-  } else {
-    if (value <= target) return 'green';
-    if (value <= target * 1.5) return 'yellow';
-    return 'red';
+import { formatGap, getMetricStatus } from '../utils/metricGap';
+
+function isCriticalPosition(position: string): boolean {
+  const criticalKeywords = ['gm', 'general manager', 'manager', 'head', 'director', 'chief', 'officer', 'supervisor', 'leader'];
+  const lower = position.toLowerCase();
+  return criticalKeywords.some(k => lower.includes(k));
+}
+
+function getPositionLevel(position: string): number {
+  const lower = position.toLowerCase();
+  if (lower.includes('gm') || lower.includes('general manager') || lower.includes('chief') || lower.includes('director')) return 5;
+  if (lower.includes('manager') || lower.includes('head ')) return 4;
+  if (lower.includes('supervisor') || lower.includes('leader') || lower.includes('deputy')) return 3;
+  if (lower.includes('officer') || lower.includes('senior') || lower.includes('asst') || lower.includes('assistant')) return 2;
+  return 1;
+}
+
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split(/[./-]/);
+  if (parts.length < 3) return null;
+  const p1 = parseInt(parts[0]);
+  const p2 = parseInt(parts[1]);
+  const p3 = parseInt(parts[2]);
+  if (isNaN(p1) || isNaN(p2) || isNaN(p3)) return null;
+  if (p3 > 31) {
+    if (p1 > 12) return new Date(p3, p2 - 1, p1);
+    return new Date(p3, p1 - 1, p2);
   }
+  if (p1 > 12) return new Date(p3, p2 - 1, p1);
+  return new Date(p3, p1 - 1, p2);
 }
 
-export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, resignations, manpower }) => {
+export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
+  candidates,
+  resignations,
+  manpower,
+  employees,
+  selectedMonth = 'All',
+  onNavigate,
+}) => {
   const stats = useMemo(() => {
     const totalStaff = manpower.reduce((s, m) => s + (m.actual || 0), 0);
     const totalBudgeted = manpower.reduce((s, m) => s + (m.budgeted || 0), 0);
     const totalVacancy = manpower.reduce((s, m) => s + Math.max(0, (m.budgeted || 0) - (m.actual || 0)), 0);
-    const vacancyRate = totalBudgeted > 0 ? (totalVacancy / totalBudgeted) * 100 : 0;
+    const vacancyRate = totalBudgeted > 0 ? (totalVacancy / totalBudgeted) * 100 : null;
 
     const totalResignations = resignations.length;
     const turnoverRate = totalStaff > 0 ? (totalResignations / totalStaff) * 100 : 0;
     const retentionRate = 100 - turnoverRate;
 
     const totalHires = candidates.filter(c => c.finalStatus === 'Joined').length;
-    const netChange = totalHires - totalResignations;
     const inPipeline = candidates.filter(c => c.finalStatus === 'In Progress').length;
+
+    const hasBudgetData = totalBudgeted > 0;
+
+    const criticalVacancies = hasBudgetData
+      ? manpower.filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= 5).length
+      : null;
+
+    const joinedWithDates = candidates.filter(c => c.finalStatus === 'Joined' && c.joinedDate && c.date);
+    const timeToFills = joinedWithDates.map(c => {
+      const received = parseDate(c.date);
+      const joined = parseDate(c.joinedDate!);
+      if (received && joined) return Math.max(0, (joined.getTime() - received.getTime()) / (1000 * 60 * 60 * 24));
+      return null;
+    }).filter((d): d is number => d !== null);
+    const avgTimeToFill = timeToFills.length > 0 ? timeToFills.reduce((a, b) => a + b, 0) / timeToFills.length : null;
+
+    const labourCostRatio: number | null = null;
+
+    const criticalPositionMap = new Map<string, { position: string; department: string }>();
+    for (const emp of employees) {
+      if (isCriticalPosition(emp.position)) {
+        const key = `${emp.position}||${emp.department}`;
+        if (!criticalPositionMap.has(key)) {
+          criticalPositionMap.set(key, { position: emp.position, department: emp.department });
+        }
+      }
+    }
+    let withSuccessor = 0;
+    for (const [, data] of criticalPositionMap) {
+      const currentLevel = getPositionLevel(data.position);
+      const sameDeptEmployees = employees.filter(e => e.department === data.department && e.position !== data.position);
+      const hasSuccessor = sameDeptEmployees.some(e => getPositionLevel(e.position) >= Math.max(1, currentLevel - 1));
+      if (hasSuccessor) withSuccessor++;
+    }
+    const successorCoverage = criticalPositionMap.size > 0 ? (withSuccessor / criticalPositionMap.size) * 100 : null;
 
     return {
       totalStaff,
@@ -75,122 +157,193 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
       turnoverRate,
       retentionRate,
       totalHires,
-      netChange,
       inPipeline,
+      hasBudgetData,
+      criticalVacancies,
+      avgTimeToFill,
+      labourCostRatio,
+      successorCoverage,
+      criticalPositionCount: criticalPositionMap.size,
     };
-  }, [candidates, resignations, manpower]);
+  }, [candidates, resignations, manpower, employees]);
 
-  const kpiRows: KpiRow[] = useMemo(() => [
-    {
-      kpi: 'Total Staff',
-      current: stats.totalStaff.toString(),
-      target: stats.totalBudgeted > 0 ? stats.totalBudgeted.toString() : '—',
-      status: stats.totalBudgeted > 0 ? getStatus(stats.totalStaff, stats.totalBudgeted, true) : 'green',
-      trend: 'up',
-      trendValue: `${stats.totalHires} hires this period`,
-      icon: Users,
-      category: 'Workforce',
-    },
-    {
-      kpi: 'Vacancy Rate',
-      current: `${stats.vacancyRate.toFixed(1)}%`,
-      target: '<5%',
-      status: getStatus(stats.vacancyRate, 5, false),
-      trend: stats.vacancyRate > 5 ? 'up' : 'down',
-      trendValue: `${stats.totalVacancy} vacant positions`,
-      icon: AlertTriangle,
-      category: 'Recruitment',
-    },
-    {
-      kpi: 'Monthly Turnover',
-      current: `${stats.turnoverRate.toFixed(1)}%`,
-      target: '<10%',
-      status: getStatus(stats.turnoverRate, 10, false),
-      trend: stats.turnoverRate > 10 ? 'up' : 'down',
-      trendValue: `${stats.totalResignations} resignations`,
-      icon: TrendingDown,
-      category: 'Retention',
-    },
-    {
-      kpi: 'Retention Rate',
-      current: `${stats.retentionRate.toFixed(1)}%`,
-      target: '>90%',
-      status: getStatus(stats.retentionRate, 90, true),
-      trend: stats.retentionRate >= 90 ? 'up' : 'down',
-      trendValue: `${stats.retentionRate.toFixed(1)}% retained`,
-      icon: ShieldCheck,
-      category: 'Retention',
-    },
-    {
-      kpi: 'Total Hires',
-      current: stats.totalHires.toString(),
-      target: `${stats.totalResignations} (replace)`,
-      status: stats.totalHires >= stats.totalResignations ? 'green' : 'red',
-      trend: stats.totalHires > 0 ? 'up' : 'flat',
-      trendValue: `${candidates.length} total CVs`,
-      icon: UserPlus,
-      category: 'Recruitment',
-    },
-    {
-      kpi: 'Net Staff Change',
-      current: stats.netChange >= 0 ? `+${stats.netChange}` : stats.netChange.toString(),
-      target: '>0',
-      status: stats.netChange >= 0 ? 'green' : 'red',
-      trend: stats.netChange > 0 ? 'up' : stats.netChange < 0 ? 'down' : 'flat',
-      trendValue: `${stats.totalHires} hired - ${stats.totalResignations} resigned`,
-      icon: Activity,
-      category: 'Workforce',
-    },
-    {
-      kpi: 'Recruitment Pipeline',
-      current: stats.inPipeline.toString(),
-      target: 'Active',
-      status: stats.inPipeline > 0 ? 'yellow' : 'red',
-      trend: 'flat',
-      trendValue: `${candidates.length} total candidates`,
-      icon: Gauge,
-      category: 'Recruitment',
-    },
-  ], [stats, candidates.length]);
+  const kpiRows: KpiRow[] = useMemo(() => {
+    const staffGap = stats.totalBudgeted > 0 ? stats.totalStaff - stats.totalBudgeted : 0;
+    const staffVerdict = stats.totalBudgeted > 0
+      ? staffGap >= 0
+        ? 'On budget'
+        : `${Math.abs(staffGap).toLocaleString()} short`
+      : 'Pending data';
 
-  const healthScore = useMemo(() => {
-    const weights: Record<string, number> = {
-      'Total Staff': 0.15,
-      'Vacancy Rate': 0.20,
-      'Monthly Turnover': 0.25,
-      'Retention Rate': 0.15,
-      'Total Hires': 0.10,
-      'Net Staff Change': 0.10,
-      'Recruitment Pipeline': 0.05,
-    };
-    const statusScore: Record<Status, number> = { green: 100, yellow: 50, red: 0 };
-    let total = 0;
-    for (const kpi of kpiRows) {
-      total += statusScore[kpi.status] * (weights[kpi.kpi] || 0);
-    }
-    return Math.round(total);
-  }, [kpiRows]);
+    const vacancyVerdict = stats.vacancyRate !== null
+      ? formatGap(stats.vacancyRate, 5, false, '%')
+      : 'Pending data';
+
+    const turnoverVerdict = formatGap(stats.turnoverRate, 10, false, '%');
+    const retentionVerdict = formatGap(stats.retentionRate, 90, true, '%');
+
+    const criticalVerdict = stats.criticalVacancies !== null
+      ? stats.criticalVacancies === 0
+        ? 'No gaps'
+        : `${stats.criticalVacancies} unfilled`
+      : 'Pending data';
+
+    const ttfVerdict = stats.avgTimeToFill !== null
+      ? formatGap(stats.avgTimeToFill, 15, false, 'd', 0)
+      : 'Pending data';
+
+    const successorVerdict = stats.successorCoverage !== null
+      ? formatGap(stats.successorCoverage, 80, true, '%', 0)
+      : 'Pending data';
+
+    return [
+      {
+        kpi: 'Total Staff',
+        current: stats.totalStaff.toLocaleString(),
+        shouldBe: stats.totalBudgeted > 0 ? `${stats.totalBudgeted.toLocaleString()} approved` : 'Approved headcount',
+        verdict: staffVerdict,
+        status: stats.totalBudgeted > 0 ? getMetricStatus(stats.totalStaff, stats.totalBudgeted, true) : 'green',
+        icon: Users,
+        category: 'Workforce',
+        hasData: true,
+      },
+      {
+        kpi: 'Vacancy Rate',
+        current: stats.vacancyRate !== null ? `${stats.vacancyRate.toFixed(1)}%` : '—',
+        shouldBe: 'Max 5%',
+        verdict: vacancyVerdict,
+        status: stats.vacancyRate !== null ? getMetricStatus(stats.vacancyRate, 5, false) : 'yellow',
+        icon: AlertTriangle,
+        category: 'Recruitment',
+        hasData: stats.vacancyRate !== null,
+      },
+      {
+        kpi: 'Monthly Turnover',
+        current: `${stats.turnoverRate.toFixed(1)}%`,
+        shouldBe: 'Max 10%',
+        verdict: turnoverVerdict,
+        status: getMetricStatus(stats.turnoverRate, 10, false),
+        icon: TrendingDown,
+        category: 'Retention',
+        hasData: true,
+      },
+      {
+        kpi: 'Retention Rate',
+        current: `${stats.retentionRate.toFixed(1)}%`,
+        shouldBe: 'Min 90%',
+        verdict: retentionVerdict,
+        status: getMetricStatus(stats.retentionRate, 90, true),
+        icon: ShieldCheck,
+        category: 'Retention',
+        hasData: true,
+      },
+      {
+        kpi: 'Critical Vacancies',
+        current: stats.criticalVacancies !== null ? stats.criticalVacancies.toString() : '—',
+        shouldBe: 'Zero',
+        verdict: criticalVerdict,
+        status: stats.criticalVacancies !== null ? (stats.criticalVacancies === 0 ? 'green' : stats.criticalVacancies <= 5 ? 'yellow' : 'red') : 'yellow',
+        icon: Siren,
+        category: 'Recruitment',
+        hasData: stats.criticalVacancies !== null,
+      },
+      {
+        kpi: 'Time to Fill',
+        current: stats.avgTimeToFill !== null ? `${Math.round(stats.avgTimeToFill)} days` : '—',
+        shouldBe: 'Max 15 days',
+        verdict: ttfVerdict,
+        status: stats.avgTimeToFill !== null ? getMetricStatus(stats.avgTimeToFill, 15, false) : 'yellow',
+        icon: Clock,
+        category: 'Recruitment',
+        hasData: stats.avgTimeToFill !== null,
+      },
+      {
+        kpi: 'Hiring Pipeline',
+        current: stats.inPipeline.toString(),
+        shouldBe: 'Close open reqs',
+        verdict: stats.inPipeline > 20 ? `${stats.inPipeline - 20} over backlog` : stats.inPipeline > 0 ? 'Active pipeline' : 'Clear',
+        status: stats.inPipeline > 30 ? 'red' : stats.inPipeline > 20 ? 'yellow' : 'green',
+        icon: UserPlus,
+        category: 'Recruitment',
+        hasData: true,
+      },
+      {
+        kpi: 'Net Workforce Change',
+        current: `${stats.totalHires - stats.totalResignations >= 0 ? '+' : ''}${stats.totalHires - stats.totalResignations}`,
+        shouldBe: 'Net positive',
+        verdict: stats.totalHires >= stats.totalResignations ? 'Growing' : `${stats.totalResignations - stats.totalHires} net loss`,
+        status: stats.totalHires >= stats.totalResignations ? 'green' : stats.totalResignations - stats.totalHires > 5 ? 'red' : 'yellow',
+        icon: Activity,
+        category: 'Workforce',
+        hasData: true,
+      },
+      {
+        kpi: 'Labour Cost Ratio',
+        current: '—',
+        shouldBe: 'Max 10%',
+        verdict: 'Pending data',
+        status: 'yellow',
+        icon: Activity,
+        category: 'Finance',
+        hasData: false,
+      },
+      {
+        kpi: 'Successor Coverage',
+        current: stats.successorCoverage !== null ? `${stats.successorCoverage.toFixed(0)}%` : '—',
+        shouldBe: 'Min 80%',
+        verdict: successorVerdict,
+        status: stats.successorCoverage !== null ? getMetricStatus(stats.successorCoverage, 80, true) : 'yellow',
+        icon: Crown,
+        category: 'Talent',
+        hasData: stats.successorCoverage !== null,
+      },
+    ];
+  }, [stats]);
 
   const redCount = kpiRows.filter(k => k.status === 'red').length;
   const yellowCount = kpiRows.filter(k => k.status === 'yellow').length;
   const greenCount = kpiRows.filter(k => k.status === 'green').length;
 
-  const health = healthScore >= 75
-    ? { label: 'Healthy', color: 'text-emerald-400', bg: 'from-emerald-600 to-emerald-800' }
-    : healthScore >= 50
-    ? { label: 'At Risk', color: 'text-amber-400', bg: 'from-amber-600 to-amber-800' }
-    : { label: 'Critical', color: 'text-rose-400', bg: 'from-rose-600 to-rose-800' };
+  const overallHealth: Status = redCount >= 3 ? 'red' : redCount >= 1 || yellowCount >= 3 ? 'yellow' : 'green';
 
-  const statusConfig: Record<Status, { dot: string; badge: string; label: string; bar: string; border: string; iconBg: string }> = {
-    green: { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'On Track', bar: 'bg-emerald-500', border: 'border-emerald-200', iconBg: 'bg-emerald-50 text-emerald-600' },
-    red: { dot: 'bg-rose-500', badge: 'bg-rose-50 text-rose-700 border-rose-200', label: 'Critical', bar: 'bg-rose-500', border: 'border-rose-200', iconBg: 'bg-rose-50 text-rose-600' },
-    yellow: { dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-200', label: 'At Risk', bar: 'bg-amber-500', border: 'border-amber-200', iconBg: 'bg-amber-50 text-amber-600' },
-  };
+  const healthSummary = {
+    green: { title: 'On Track', detail: `${greenCount}/${kpiRows.length} KPIs on target` },
+    yellow: { title: 'Needs Attention', detail: `${yellowCount + redCount}/${kpiRows.length} KPIs off target` },
+    red: { title: 'Critical', detail: `${redCount} critical · ${yellowCount} at risk` },
+  }[overallHealth];
 
-  const trendConfig: Record<TrendDir, { icon: React.ElementType; color: string }> = {
-    up: { icon: ArrowRight, color: 'text-emerald-500' },
-    down: { icon: ArrowRight, color: 'text-rose-500' },
-    flat: { icon: MinusCircle, color: 'text-slate-400' },
+  const categoryOrder = ['Workforce', 'Retention', 'Recruitment', 'Finance', 'Talent'];
+  const groupedKpis = categoryOrder
+    .map(cat => ({ category: cat, rows: kpiRows.filter(k => k.category === cat) }))
+    .filter(g => g.rows.length > 0);
+
+  const offTargetKpis = useMemo(
+    () => kpiRows
+      .filter(k => k.status !== 'green')
+      .sort((a, b) => {
+        const order: Record<Status, number> = { red: 0, yellow: 1, green: 2 };
+        return order[a.status] - order[b.status];
+      }),
+    [kpiRows],
+  );
+
+  const dataGapKpis = useMemo(() => kpiRows.filter(k => !k.hasData), [kpiRows]);
+
+  const workforceFacts = useMemo(() => [
+    { label: 'Total Staff', value: stats.totalStaff.toLocaleString() },
+    { label: 'Hires', value: stats.totalHires.toLocaleString() },
+    { label: 'Resignations', value: stats.totalResignations.toLocaleString() },
+    { label: 'Net Change', value: `${stats.totalHires - stats.totalResignations >= 0 ? '+' : ''}${stats.totalHires - stats.totalResignations}` },
+    { label: 'Retention Rate', value: `${stats.retentionRate.toFixed(1)}%` },
+    { label: 'Turnover Rate', value: `${stats.turnoverRate.toFixed(1)}%` },
+    { label: 'Hiring Pipeline', value: stats.inPipeline.toLocaleString() },
+    ...(stats.vacancyRate !== null ? [{ label: 'Vacancy Rate', value: `${stats.vacancyRate.toFixed(1)}%` }] : []),
+  ], [stats]);
+
+  const statusConfig: Record<Status, { dot: string; badge: string; label: string; border: string; iconBg: string }> = {
+    green: { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'On Track', border: 'border-emerald-200', iconBg: 'bg-emerald-50 text-emerald-600' },
+    red: { dot: 'bg-rose-500', badge: 'bg-rose-50 text-rose-700 border-rose-200', label: 'Critical', border: 'border-rose-200', iconBg: 'bg-rose-50 text-rose-600' },
+    yellow: { dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-200', label: 'At Risk', border: 'border-amber-200', iconBg: 'bg-amber-50 text-amber-600' },
   };
 
   const [expandedKpi, setExpandedKpi] = useState<string | null>(null);
@@ -229,6 +382,11 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
         department: c.department,
         position: c.position,
         date: c.joinedDate || c.date,
+        timeToFill: c.joinedDate && c.date ? (() => {
+          const r = parseDate(c.date); const j = parseDate(c.joinedDate);
+          if (r && j) return Math.max(0, Math.round((j.getTime() - r.getTime()) / (1000 * 60 * 60 * 24)));
+          return null;
+        })() : null,
       }));
 
     const pipelineList = candidates
@@ -237,14 +395,46 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
         name: c.name,
         department: c.department,
         position: c.position,
-        status: c.finalStatus,
         sentToHOD: c.sentToHOD,
         firstInterview: c.firstInterview,
         secondInterview: c.secondInterview,
       }));
 
-    return { deptStaff, resignationsList, hiresList, pipelineList };
-  }, [manpower, resignations, candidates]);
+    const criticalVacantPositions = manpower
+      .filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= 5)
+      .map(m => ({
+        department: m.department,
+        position: m.position,
+        budgeted: m.budgeted,
+        actual: m.actual,
+        vacant: Math.max(0, m.budgeted - m.actual),
+      }))
+      .sort((a, b) => b.vacant - a.vacant);
+
+    const successorList: { position: string; department: string; hasSuccessor: boolean; successorName: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const emp of employees) {
+      if (!isCriticalPosition(emp.position)) continue;
+      const key = `${emp.position}||${emp.department}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const currentLevel = getPositionLevel(emp.position);
+      const sameDeptEmployees = employees.filter(e => e.department === emp.department && e.position !== emp.position);
+      const ranked = sameDeptEmployees
+        .map(e => ({ emp: e, level: getPositionLevel(e.position) }))
+        .filter(c => c.level >= Math.max(1, currentLevel - 1))
+        .sort((a, b) => b.level - a.level);
+      const successor = ranked[0]?.emp || null;
+      successorList.push({
+        position: emp.position,
+        department: emp.department,
+        hasSuccessor: !!successor,
+        successorName: successor ? successor.name : null,
+      });
+    }
+
+    return { deptStaff, resignationsList, hiresList, pipelineList, criticalVacantPositions, successorList };
+  }, [manpower, resignations, candidates, employees]);
 
   const renderDetail = (kpiName: string) => {
     if (kpiName === 'Total Staff') {
@@ -263,9 +453,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
               {detailData.deptStaff.map((d, i) => (
                 <tr key={d.department} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
                   <td className="px-4 py-3"><div className="flex items-center gap-2"><Building2 className="w-3.5 h-3.5 text-slate-400" /><span className="text-sm font-bold text-slate-700">{d.department}</span></div></td>
-                  <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{d.budgeted}</td>
+                  <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{d.budgeted > 0 ? d.budgeted : '—'}</td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{d.actual}</td>
-                  <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${d.vacancy > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{d.actual - d.budgeted > 0 ? '+' : ''}{d.actual - d.budgeted}</td>
+                  <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${d.actual - d.budgeted < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{d.budgeted > 0 ? (d.actual - d.budgeted > 0 ? '+' : '') + (d.actual - d.budgeted) : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -275,6 +465,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
     }
 
     if (kpiName === 'Vacancy Rate') {
+      if (!stats.hasBudgetData) {
+        return <div className="py-8 text-center text-sm text-slate-400">Budget data not available. Cannot compute vacancy breakdown.</div>;
+      }
       return (
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -332,68 +525,6 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
       );
     }
 
-    if (kpiName === 'Total Hires') {
-      return (
-        <div className="overflow-x-auto max-h-80 overflow-y-auto">
-          <table className="w-full">
-            <thead className="sticky top-0">
-              <tr className="bg-slate-50/80">
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Joined Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detailData.hiresList.length > 0 ? detailData.hiresList.slice(0, 50).map((h, i) => (
-                <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-600">{h.name.charAt(0)}</div><span className="text-sm font-bold text-slate-700">{h.name}</span></div></td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{h.department}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{h.position}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500"><div className="flex items-center gap-1"><Calendar className="w-3 h-3 text-slate-400" />{h.date}</div></td>
-                </tr>
-              )) : (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">No hires yet</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
-
-    if (kpiName === 'Recruitment Pipeline') {
-      return (
-        <div className="overflow-x-auto max-h-80 overflow-y-auto">
-          <table className="w-full">
-            <thead className="sticky top-0">
-              <tr className="bg-slate-50/80">
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Candidate</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">HOD</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">1st Int</th>
-                <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">2nd Int</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detailData.pipelineList.length > 0 ? detailData.pipelineList.slice(0, 50).map((p, i) => (
-                <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600">{p.name.charAt(0)}</div><span className="text-sm font-bold text-slate-700">{p.name}</span></div></td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{p.department}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{p.position}</td>
-                  <td className="px-4 py-3 text-center">{p.sentToHOD ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" /> : <XCircle className="w-4 h-4 text-slate-300 mx-auto" />}</td>
-                  <td className="px-4 py-3 text-center">{p.firstInterview ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" /> : <XCircle className="w-4 h-4 text-slate-300 mx-auto" />}</td>
-                  <td className="px-4 py-3 text-center">{p.secondInterview ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" /> : <XCircle className="w-4 h-4 text-slate-300 mx-auto" />}</td>
-                </tr>
-              )) : (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">No candidates in pipeline</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
-
     if (kpiName === 'Retention Rate') {
       return (
         <div className="overflow-x-auto">
@@ -428,32 +559,97 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
       );
     }
 
-    if (kpiName === 'Net Staff Change') {
+    if (kpiName === 'Critical Vacancies') {
+      if (!stats.hasBudgetData || detailData.criticalVacantPositions.length === 0) {
+        return <div className="py-8 text-center text-sm text-slate-400">{!stats.hasBudgetData ? 'Budget data not available.' : 'No critical vacancies identified.'}</div>;
+      }
       return (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-slate-50/80">
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Hires</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resignations</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Net Change</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Budgeted</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Actual</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vacant</th>
               </tr>
             </thead>
             <tbody>
-              {detailData.deptStaff.map((d, i) => {
-                const hires = candidates.filter(c => c.finalStatus === 'Joined' && c.department === d.department).length;
-                const resCount = resignations.filter(r => r.department === d.department).length;
-                const net = hires - resCount;
-                return (
-                  <tr key={d.department} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Building2 className="w-3.5 h-3.5 text-slate-400" /><span className="text-sm font-bold text-slate-700">{d.department}</span></div></td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-emerald-600 tabular-nums">+{hires}</td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-rose-600 tabular-nums">-{resCount}</td>
-                    <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${net >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{net >= 0 ? '+' : ''}{net}</td>
-                  </tr>
-                );
-              })}
+              {detailData.criticalVacantPositions.map((p, i) => (
+                <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
+                  <td className="px-4 py-3"><span className="text-sm font-bold text-slate-700">{p.department}</span></td>
+                  <td className="px-4 py-3"><span className="text-sm text-slate-600">{p.position}</span></td>
+                  <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{p.budgeted}</td>
+                  <td className="px-4 py-3 text-right text-sm font-bold text-slate-700 tabular-nums">{p.actual}</td>
+                  <td className="px-4 py-3 text-right text-sm font-black text-rose-600 tabular-nums">{p.vacant}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    if (kpiName === 'Time to Fill') {
+      const withTTF = detailData.hiresList.filter(h => h.timeToFill !== null);
+      if (withTTF.length === 0) {
+        return <div className="py-8 text-center text-sm text-slate-400">No joined candidates with date data available.</div>;
+      }
+      return (
+        <div className="overflow-x-auto max-h-80 overflow-y-auto">
+          <table className="w-full">
+            <thead className="sticky top-0">
+              <tr className="bg-slate-50/80">
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Employee</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Days</th>
+              </tr>
+            </thead>
+            <tbody>
+              {withTTF.map((h, i) => (
+                <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
+                  <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-600">{h.name.charAt(0)}</div><span className="text-sm font-bold text-slate-700">{h.name}</span></div></td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{h.department}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{h.position}</td>
+                  <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${(h.timeToFill as number) > 15 ? 'text-rose-600' : 'text-emerald-600'}`}>{h.timeToFill}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    if (kpiName === 'Labour Cost Ratio') {
+      return <div className="py-8 text-center text-sm text-slate-400">Payroll cost data not available. Finance to provide labour cost data for this KPI.</div>;
+    }
+
+    if (kpiName === 'Successor Coverage') {
+      if (detailData.successorList.length === 0) {
+        return <div className="py-8 text-center text-sm text-slate-400">No critical positions identified in employee data.</div>;
+      }
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-50/80">
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Position</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Department</th>
+                <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">Successor Identified</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Successor Name</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detailData.successorList.map((s, i) => (
+                <tr key={i} className={`border-t border-slate-100 ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
+                  <td className="px-4 py-3"><span className="text-sm font-bold text-slate-700">{s.position}</span></td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{s.department}</td>
+                  <td className="px-4 py-3 text-center">{s.hasSuccessor ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" /> : <XCircle className="w-4 h-4 text-rose-400 mx-auto" />}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{s.successorName || '—'}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -463,165 +659,341 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({ candidates, re
     return null;
   };
 
+  const actionSeverityConfig = {
+    red: { border: 'border-rose-200', bg: 'bg-rose-50/60' },
+    yellow: { border: 'border-amber-200', bg: 'bg-amber-50/60' },
+  };
+
+  const netWorkforceChange = stats.totalHires - stats.totalResignations;
+  const periodLabel = selectedMonth === 'All' ? 'All periods' : selectedMonth;
+
+  const topRiskDept = useMemo(() => {
+    const deptMap = manpower.reduce((acc, m) => {
+      acc[m.department] = (acc[m.department] || 0) + (m.actual || 0);
+      return acc;
+    }, {} as Record<string, number>);
+
+    let worst: { department: string; resignations: number; staff: number; retention: number } | null = null;
+    for (const [department, staff] of Object.entries(deptMap) as [string, number][]) {
+      const resCount = resignations.filter(r => r.department === department).length;
+      if (staff === 0) continue;
+      const retention = ((staff - resCount) / staff) * 100;
+      if (!worst || retention < worst.retention) {
+        worst = { department, resignations: resCount, staff, retention };
+      }
+    }
+    return worst;
+  }, [manpower, resignations]);
+
+  const headerGradient = overallHealth === 'green' ? 'emerald' as const : overallHealth === 'yellow' ? 'amber' as const : 'rose' as const;
+
+  const drillSections = [
+    { tab: 'riskalerts', label: 'Risk Alerts', desc: 'Open HR risks', icon: Siren, tone: 'text-rose-600 bg-rose-50' },
+    { tab: 'branch', label: 'Branch Scorecard', desc: 'Location performance', icon: Store, tone: 'text-indigo-600 bg-indigo-50' },
+    { tab: 'dept', label: 'Dept Scorecard', desc: 'Department KPIs', icon: Briefcase, tone: 'text-blue-600 bg-blue-50' },
+    { tab: 'manager', label: 'Manager Scorecard', desc: 'Leadership metrics', icon: UserCog, tone: 'text-purple-600 bg-purple-50' },
+    { tab: 'planning', label: 'Manpower Planning', desc: 'Headcount vs budget', icon: Calculator, tone: 'text-emerald-600 bg-emerald-50' },
+    { tab: 'talent', label: 'Talent & Succession', desc: 'Successor coverage', icon: Crown, tone: 'text-amber-600 bg-amber-50' },
+    { tab: 'exitanalytics', label: 'Exit Analytics', desc: 'Why people leave', icon: LogOut, tone: 'text-orange-600 bg-orange-50' },
+  ];
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Header + Health Score */}
-      <div className={`bg-gradient-to-br ${health.bg} rounded-3xl p-8 md:p-10 text-white shadow-xl`}>
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-white/15 backdrop-blur rounded-xl flex items-center justify-center">
-                <Activity className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-widest text-white/60">Chairman Briefing</span>
-            </div>
-            <h2 className="text-2xl md:text-3xl font-black tracking-tight">HR Executive Summary</h2>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="relative flex flex-col items-center">
-              <div className="relative w-32 h-32">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
-                  <circle cx="60" cy="60" r="52" fill="none" stroke="white" strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={`${(healthScore / 100) * 326.7} 326.7`} className="transition-all duration-1000" />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-4xl font-black">{healthScore}</span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">/ 100</span>
+    <OperationalShell>
+      <OperationalHeader
+        eyebrow="29 ရတနာ · Chairman HR Executive Summary 2.0"
+        title="Company HR Health — 30 Second Overview"
+        subtitle={`${periodLabel} · ${kpiRows.length} KPIs · live sheet data`}
+        gradient={headerGradient}
+        metrics={[
+          { value: stats.totalStaff.toLocaleString(), label: 'Total Staff' },
+          { value: `${stats.turnoverRate.toFixed(1)}%`, label: 'Turnover', accentClass: stats.turnoverRate > 10 ? 'text-rose-300' : undefined },
+          { value: stats.vacancyRate !== null ? `${stats.vacancyRate.toFixed(1)}%` : '—', label: 'Vacancy' },
+          { value: healthSummary.title, label: 'Verdict', accentClass: overallHealth === 'red' ? 'text-rose-300' : overallHealth === 'yellow' ? 'text-amber-200' : 'text-emerald-200' },
+        ]}
+        alert={
+          offTargetKpis.length > 0 ? (
+            <OperationalAlert tone="rose">
+              <Siren className="w-4 h-4 flex-shrink-0" />
+              <span className="text-sm font-bold">
+                {offTargetKpis.length} KPI{offTargetKpis.length > 1 ? 's' : ''} off target — {offTargetKpis[0].kpi}: {offTargetKpis[0].current} ({offTargetKpis[0].verdict})
+              </span>
+            </OperationalAlert>
+          ) : undefined
+        }
+      />
+
+      {/* Briefing + Health strip */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <OperationalSection
+          title="Data Summary"
+          subtitle={`${periodLabel} · computed from sheet records`}
+          icon={LayoutDashboard}
+          className="lg:col-span-2"
+          bodyClassName="p-0"
+        >
+          <div className="border-b border-slate-100 px-6 py-3">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Workforce</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {workforceFacts.map(fact => (
+                <div key={fact.label} className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{fact.label}</p>
+                  <p className="text-lg font-black text-slate-900 tabular-nums mt-0.5">{fact.value}</p>
                 </div>
-              </div>
-              <span className={`text-sm font-bold mt-2 ${health.color}`}>{health.label}</span>
-            </div>
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-3 px-5 py-3 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-                <XCircle className="w-5 h-5 text-rose-300" />
-                <div><p className="text-2xl font-black leading-none">{redCount}</p><p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mt-1">Critical</p></div>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-3 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-                <AlertTriangle className="w-5 h-5 text-amber-300" />
-                <div><p className="text-2xl font-black leading-none">{yellowCount}</p><p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mt-1">At Risk</p></div>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-3 bg-white/10 backdrop-blur rounded-2xl border border-white/10">
-                <CheckCircle2 className="w-5 h-5 text-emerald-300" />
-                <div><p className="text-2xl font-black leading-none">{greenCount}</p><p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mt-1">On Track</p></div>
-              </div>
+              ))}
             </div>
           </div>
+          <OperationalTableWrap>
+            <OperationalTable>
+              <OperationalThead>
+                <OperationalTh>KPI (off target)</OperationalTh>
+                <OperationalTh align="right">Now</OperationalTh>
+                <OperationalTh align="right">Target</OperationalTh>
+                <OperationalTh>Gap</OperationalTh>
+                <OperationalTh align="center">Status</OperationalTh>
+              </OperationalThead>
+              <tbody>
+                {offTargetKpis.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">
+                      {greenCount}/{kpiRows.length} KPIs on target
+                    </td>
+                  </tr>
+                ) : (
+                  offTargetKpis.map(kpi => {
+                    const sc = statusConfig[kpi.status];
+                    return (
+                      <tr key={kpi.kpi} className="border-t border-slate-100">
+                        <td className="px-4 py-3 text-sm font-bold text-slate-800">{kpi.kpi}</td>
+                        <td className="px-4 py-3 text-right text-sm font-black tabular-nums">{kpi.current}</td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-600">{kpi.shouldBe}</td>
+                        <td className={`px-4 py-3 text-sm font-semibold ${kpi.status === 'red' ? 'text-rose-700' : 'text-amber-700'}`}>{kpi.verdict}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase ${sc.badge}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                            {sc.label}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </OperationalTable>
+          </OperationalTableWrap>
+        </OperationalSection>
+
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">KPI Health</p>
+            <div className="flex h-3 rounded-full overflow-hidden bg-slate-100 mb-4">
+              {greenCount > 0 && <div className="bg-emerald-500" style={{ width: `${(greenCount / kpiRows.length) * 100}%` }} />}
+              {yellowCount > 0 && <div className="bg-amber-500" style={{ width: `${(yellowCount / kpiRows.length) * 100}%` }} />}
+              {redCount > 0 && <div className="bg-rose-500" style={{ width: `${(redCount / kpiRows.length) * 100}%` }} />}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { count: redCount, status: 'red' as Status, label: 'Critical' },
+                { count: yellowCount, status: 'yellow' as Status, label: 'At Risk' },
+                { count: greenCount, status: 'green' as Status, label: 'On Track' },
+              ]).map(({ count, status, label }) => (
+                <div key={status} className={`rounded-xl border px-3 py-2 text-center ${statusConfig[status].border}`}>
+                  <p className="text-xl font-black text-slate-900 tabular-nums">{count}</p>
+                  <p className="text-[10px] font-bold text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {topRiskDept && (
+            <div className="bg-white rounded-2xl border border-rose-200 shadow-sm p-5">
+              <p className="text-[10px] font-bold text-rose-500 uppercase tracking-widest mb-2">Highest Risk Department</p>
+              <p className="text-lg font-black text-slate-900">{topRiskDept.department}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {topRiskDept.resignations} resignations · {topRiskDept.retention.toFixed(0)}% retention
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-2 h-7 bg-indigo-500 rounded-full" />
-          <h3 className="text-xl font-bold text-slate-800">KPI Scorecard</h3>
-          <span className="text-sm text-slate-400 font-medium">— Computed from live data, click any card for details</span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {kpiRows.map((kpi) => {
-            const sc = statusConfig[kpi.status];
-            const TrendIcon = trendConfig[kpi.trend].icon;
-            const trendColor = kpi.trend === 'up' ? 'text-emerald-500' : kpi.trend === 'down' ? 'text-rose-500' : 'text-slate-400';
-            const progress = kpi.status === 'green' ? 100 : kpi.status === 'yellow' ? 50 : 25;
-            const isActive = expandedKpi === kpi.kpi;
-            return (
-              <div
-                key={kpi.kpi}
-                className={`bg-white p-6 rounded-2xl border-2 ${sc.border} shadow-sm transition-all cursor-pointer ${isActive ? 'shadow-lg ring-2 ring-indigo-200' : 'hover:shadow-md'}`}
-                onClick={() => setExpandedKpi(isActive ? null : kpi.kpi)}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${sc.iconBg}`}>
-                    <kpi.icon className="w-5 h-5" />
-                  </div>
-                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${sc.badge}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">{sc.label}</span>
-                  </div>
-                </div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{kpi.category}</p>
-                <h4 className="text-sm font-bold text-slate-800 mb-3">{kpi.kpi}</h4>
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-3xl font-black text-slate-900 tabular-nums">{kpi.current}</span>
-                  <span className="text-xs font-bold text-slate-400">/ {kpi.target}</span>
-                </div>
-                <div className={`flex items-center gap-1 text-xs font-bold ${trendColor} mb-4`}>
-                  <TrendIcon className="w-3.5 h-3.5" />
-                  <span>{kpi.trendValue}</span>
-                </div>
-                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div className={`h-full ${sc.bar} rounded-full transition-all duration-1000`} style={{ width: `${progress}%` }} />
-                </div>
+      {/* Workforce pulse */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Hires', value: stats.totalHires, icon: UserPlus, tone: 'text-emerald-600 bg-emerald-50' },
+          { label: 'Resignations', value: stats.totalResignations, icon: TrendingDown, tone: 'text-rose-600 bg-rose-50' },
+          { label: 'Pipeline', value: stats.inPipeline, icon: Clock, tone: 'text-indigo-600 bg-indigo-50' },
+          { label: 'Net Change', value: `${netWorkforceChange >= 0 ? '+' : ''}${netWorkforceChange}`, icon: Activity, tone: netWorkforceChange >= 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50' },
+        ].map(item => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.tone}`}>
+                <Icon className="w-5 h-5" />
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Detail Section */}
-      {expandedKpi && (
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-7 bg-indigo-500 rounded-full" />
               <div>
-                <h3 className="text-xl font-bold text-slate-800">{expandedKpi} — Detail Breakdown</h3>
-                <p className="text-slate-500 text-sm mt-0.5">Computed from live HR data</p>
+                <p className="text-2xl font-black text-slate-900 tabular-nums leading-none">{item.value}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">{item.label}</p>
               </div>
             </div>
-            <button
-              onClick={() => setExpandedKpi(null)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              <ChevronUp className="w-4 h-4" />
-              Close
-            </button>
-          </div>
-          <div className="p-6">
-            {renderDetail(expandedKpi)}
-          </div>
-        </div>
-      )}
+          );
+        })}
+      </div>
 
-      {/* Ownership */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center">
-              <UserCog className="w-6 h-6 text-indigo-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accountable</p>
-              <p className="text-lg font-bold text-slate-800">HR GM</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Overall HR Health</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-indigo-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Responsible</p>
-              <p className="text-lg font-bold text-slate-800">HR Analytics Team</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Data & Reporting</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center">
-              <Gauge className="w-6 h-6 text-indigo-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Review Cadence</p>
-              <p className="text-lg font-bold text-slate-800">Monthly</p>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Executive Committee</p>
-            </div>
-          </div>
+      {/* KPI + Actions side by side */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+        <OperationalSection
+          title="KPI Scorecard"
+          subtitle="KPI · Now · Target · Gap · Status — click row for drill-down"
+          icon={ShieldCheck}
+          className="xl:col-span-3"
+          bodyClassName="p-0"
+        >
+          <OperationalTableWrap>
+            <OperationalTable>
+              <OperationalThead>
+                <OperationalTh>KPI</OperationalTh>
+                <OperationalTh align="right">Now</OperationalTh>
+                <OperationalTh align="right">Target</OperationalTh>
+                <OperationalTh>Gap</OperationalTh>
+                <OperationalTh align="center">Status</OperationalTh>
+              </OperationalThead>
+              <tbody>
+                {groupedKpis.map(({ category, rows }) => (
+                  <React.Fragment key={category}>
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={5} className="px-4 py-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{category}</span>
+                      </td>
+                    </tr>
+                    {rows.map(kpi => {
+                      const sc = statusConfig[kpi.status];
+                      const isActive = expandedKpi === kpi.kpi;
+                      const Icon = kpi.icon;
+                      return (
+                        <React.Fragment key={kpi.kpi}>
+                          <tr
+                            className={`border-t border-slate-100 cursor-pointer transition-colors ${isActive ? 'bg-indigo-50/60' : 'hover:bg-slate-50/80'}`}
+                            onClick={() => setExpandedKpi(isActive ? null : kpi.kpi)}
+                          >
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${sc.iconBg}`}>
+                                  <Icon className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-sm font-bold text-slate-800">{kpi.kpi}</span>
+                                  {!kpi.hasData && <span className="ml-2 text-[10px] font-bold text-amber-500">No data</span>}
+                                </div>
+                                {isActive ? <ChevronUp className="w-4 h-4 text-indigo-400 ml-auto" /> : <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />}
+                              </div>
+                            </td>
+                            <td className={`px-4 py-3.5 text-right text-sm font-black tabular-nums ${kpi.hasData ? 'text-slate-900' : 'text-slate-400'}`}>{kpi.current}</td>
+                            <td className="px-4 py-3.5 text-right text-sm text-slate-600">{kpi.shouldBe}</td>
+                            <td className="px-4 py-3.5">
+                              <p className={`text-sm font-semibold ${kpi.status === 'green' ? 'text-emerald-700' : kpi.status === 'red' ? 'text-rose-700' : 'text-amber-700'}`}>{kpi.verdict}</p>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="flex justify-center">
+                                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${sc.badge}`}>
+                                  <span className={`w-2 h-2 rounded-full ${sc.dot}`} />
+                                  <span className="text-[10px] font-bold uppercase tracking-wider">{sc.label}</span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                          {isActive && (
+                            <tr className="bg-slate-50/40">
+                              <td colSpan={5} className="px-4 py-4 border-t border-indigo-100">{renderDetail(kpi.kpi)}</td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </OperationalTable>
+          </OperationalTableWrap>
+        </OperationalSection>
+
+        <div className="xl:col-span-2 space-y-6">
+          <OperationalSection title="Off-Target KPIs" subtitle={`${offTargetKpis.length} from scorecard`} icon={Siren}>
+            {offTargetKpis.length === 0 ? (
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <p className="text-sm text-slate-600">{greenCount}/{kpiRows.length} KPIs on target</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {offTargetKpis.slice(0, 5).map(kpi => {
+                  const cfg = actionSeverityConfig[kpi.status === 'red' ? 'red' : 'yellow'];
+                  return (
+                    <div key={kpi.kpi} className={`p-3 rounded-xl border ${cfg.border} ${cfg.bg}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold text-slate-800">{kpi.kpi}</p>
+                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusConfig[kpi.status].badge}`}>
+                          {statusConfig[kpi.status].label}
+                        </span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                        <div><span className="text-slate-400">Now</span><p className="font-black text-slate-900">{kpi.current}</p></div>
+                        <div><span className="text-slate-400">Target</span><p className="font-semibold text-slate-700">{kpi.shouldBe}</p></div>
+                        <div><span className="text-slate-400">Gap</span><p className={`font-semibold ${kpi.status === 'red' ? 'text-rose-700' : 'text-amber-700'}`}>{kpi.verdict}</p></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {dataGapKpis.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Missing Data</p>
+                <ul className="space-y-1">
+                  {dataGapKpis.map(kpi => (
+                    <li key={kpi.kpi} className="text-xs text-slate-500 flex items-center gap-2">
+                      <MinusCircle className="w-3 h-3 flex-shrink-0" />
+                      {kpi.kpi}: {kpi.verdict}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </OperationalSection>
+
+          {onNavigate && (
+            <OperationalSection title="Drill Down" subtitle="Chairman section navigation" icon={ArrowRight}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {drillSections.map(section => {
+                  const Icon = section.icon;
+                  return (
+                    <button
+                      key={section.tab}
+                      type="button"
+                      onClick={() => onNavigate(section.tab)}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors text-left group"
+                    >
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${section.tone}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-700">{section.label}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{section.desc}</p>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 flex-shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            </OperationalSection>
+          )}
         </div>
       </div>
-    </div>
+
+      <OperationalOwnership items={[
+        { icon: UserCog, label: 'Accountable', value: 'HR GM' },
+        { icon: Users, label: 'Responsible', value: 'HR Analytics Team' },
+        { icon: Calendar, label: 'Review', value: 'Monthly — Executive Committee' },
+      ]} />
+    </OperationalShell>
   );
 };

@@ -19,13 +19,12 @@ interface FunnelData {
 
 interface HiringFunnelProps {
   data: FunnelData[];
+  embedded?: boolean;
 }
 
-export const HiringFunnel: React.FC<HiringFunnelProps> = ({ data }) => {
-  return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-[400px]">
-      <h3 className="text-lg font-semibold text-slate-800 mb-6">Hiring Funnel</h3>
-      <ResponsiveContainer width="100%" height="90%">
+export const HiringFunnel: React.FC<HiringFunnelProps> = ({ data, embedded = false }) => {
+  const chart = (
+    <ResponsiveContainer width="100%" height={embedded ? 280 : '90%'}>
         <BarChart
           layout="vertical"
           data={data}
@@ -52,7 +51,15 @@ export const HiringFunnel: React.FC<HiringFunnelProps> = ({ data }) => {
             <LabelList dataKey="value" position="right" style={{ fill: '#334155', fontWeight: 600 }} />
           </Bar>
         </BarChart>
-      </ResponsiveContainer>
+    </ResponsiveContainer>
+  );
+
+  if (embedded) return <div className="h-[300px]">{chart}</div>;
+
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-[400px]">
+      <h3 className="text-base font-bold text-slate-800 mb-4">Hiring Funnel</h3>
+      {chart}
     </div>
   );
 };

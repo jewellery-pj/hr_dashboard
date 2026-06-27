@@ -1,16 +1,15 @@
 import React from 'react';
 import { Candidate } from '../data/mockData';
+import { sortByDate } from '../utils/dateUtils';
 
 interface PivotTable3Props {
   candidates: Candidate[];
 }
 
 export const PivotTable3: React.FC<PivotTable3Props> = ({ candidates }) => {
-  // Filter only joined candidates
-  const joinedCandidates = candidates.filter(c => c.finalStatus === 'Joined' && c.joinedDate);
+  const joinedCandidates = candidates.filter(c => c.finalStatus === 'Joined');
 
-  // Get unique joined dates, positions, and departments
-  const joinedDates = Array.from(new Set(joinedCandidates.map(c => c.joinedDate as string))).sort() as string[];
+  const joinedDates = Array.from(new Set(joinedCandidates.map(c => c.joinedDate as string).filter(Boolean))).sort(sortByDate) as string[];
   const positions = Array.from(new Set(joinedCandidates.map(c => c.position))).sort() as string[];
   const departments = Array.from(new Set(joinedCandidates.map(c => c.department))).sort() as string[];
 
@@ -22,7 +21,7 @@ export const PivotTable3: React.FC<PivotTable3Props> = ({ candidates }) => {
   const grid: Record<string, Record<string, Record<string, number>>> = {};
   
   joinedCandidates.forEach(c => {
-    const date = c.joinedDate as string;
+    const date = (c.joinedDate || c.date || 'Unknown') as string;
     if (!grid[date]) grid[date] = {};
     if (!grid[date][c.position]) grid[date][c.position] = {};
     const dateGrid = grid[date];
@@ -47,12 +46,12 @@ export const PivotTable3: React.FC<PivotTable3Props> = ({ candidates }) => {
   });
 
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-slate-800">PivotTable 1 (Joined Date & Position vs Dept)</h3>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+        <h3 className="text-base font-bold text-slate-800">Joined by Date & Position</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Pivot · Joined Date & Position vs Department</p>
       </div>
-      
-      <div className="overflow-x-auto">
+      <div className="p-6 overflow-hidden">
         <table className="w-full border-collapse text-[11px]">
           <thead>
             {/* Top Header */}

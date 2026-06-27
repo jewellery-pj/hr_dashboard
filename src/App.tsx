@@ -3,10 +3,7 @@ import {
   LayoutDashboard, 
   LogOut, 
   Users, 
-  Send, 
   MessageSquare, 
-  UserPlus, 
-  XCircle,
   Filter,
   Settings,
   AlertTriangle,
@@ -17,14 +14,7 @@ import {
   Crown
 } from 'lucide-react';
 import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower, JobNetData, mockJobNetData, EmployeeRecord } from './data/mockData';
-import { KpiCard } from './components/KpiCard';
-import { HiringFunnel } from './components/HiringFunnel';
-import { TrendChart } from './components/TrendChart';
-import { PositionChart } from './components/PositionChart';
-import { HodSentChart } from './components/HodSentChart';
-import { PivotTable } from './components/PivotTable';
-import { PivotTable2 } from './components/PivotTable2';
-import { PivotTable3 } from './components/PivotTable3';
+import { RecruitmentDashboard } from './components/RecruitmentDashboard';
 import { ResignationDashboard } from './components/ResignationDashboard';
 import { ExitInterviewDashboard } from './components/ExitInterviewDashboard';
 import { ManpowerDashboard } from './components/ManpowerDashboard';
@@ -39,6 +29,7 @@ import { ManpowerPlanning } from './components/ManpowerPlanning';
 import { TalentSuccession } from './components/TalentSuccession';
 import { ExitAnalytics } from './components/ExitAnalytics';
 import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData, fetchJobNetData, fetchEmployeeData } from './services/excelService';
+import { extractMonthFromDate } from './utils/dateUtils';
 import Login from './components/Login';
 import ChangePassword from './components/ChangePassword';
 import { useAuth } from './context/AuthContext';
@@ -59,8 +50,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'chairman' | 'riskalerts' | 'branch' | 'dept' | 'manager' | 'planning' | 'talent' | 'exitanalytics' | 'overview' | 'recruitment' | 'resignation' | 'exit' | 'manpower' | 'jobnet'>('chairman');
   const [showChangePassword, setShowChangePassword] = useState(false);
 
-  const [selectedDeptForPositions, setSelectedDeptForPositions] = useState<string>('');
-
   useEffect(() => {
     if (!isAuthenticated) return;
     
@@ -78,9 +67,6 @@ export default function App() {
 
         if (excelData && excelData.length > 0) {
           setCandidates(excelData);
-          // Set initial department for position counts
-          const depts = Array.from(new Set(excelData.map(c => c.department))).sort();
-          if (depts.length > 0) setSelectedDeptForPositions(depts[0]);
         }
         if (resData && resData.length > 0) {
           setResignations(resData);
@@ -112,37 +98,26 @@ export default function App() {
     loadData();
   }, [isAuthenticated]);
 
-  const recruitmentDepts = useMemo(() => 
-    Array.from(new Set(candidates.map(c => c.department))).sort()
-  , [candidates]);
-
-  const positionsByDept = useMemo(() => {
-    if (!selectedDeptForPositions) return [];
-    const filtered = candidates.filter(c => c.department === selectedDeptForPositions);
-    const counts = filtered.reduce((acc, c) => {
-      acc[c.position] = (acc[c.position] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count: Number(count) }))
-      .sort((a, b) => b.count - a.count);
-  }, [candidates, selectedDeptForPositions]);
-
-  const totalApplicantsInDept = useMemo(() => {
-    return candidates.filter(c => c.department === selectedDeptForPositions).length;
-  }, [candidates, selectedDeptForPositions]);
-
   const availableMonths = useMemo(() => {
-    let data: any[] = [];
-    if (activeTab === 'recruitment') data = candidates;
+    let data: { month?: string }[] = [];
+    if (activeTab === 'recruitment' || activeTab === 'overview') data = candidates;
     else if (activeTab === 'resignation') data = resignations;
-    else if (activeTab === 'exit') data = exitInterviews;
+    else if (activeTab === 'exit' || activeTab === 'exitanalytics') data = exitInterviews;
     else if (activeTab === 'manpower') data = manpower;
+    else if (activeTab === 'jobnet') {
+      data = jobNetData.map(j => ({ month: extractMonthFromDate(j.cvReceivedDate) || undefined }));
+    }
 
-    const months = Array.from(new Set(data.map(c => c.month)))
-      .sort((a, b) => MONTH_ORDER.indexOf(a as string) - MONTH_ORDER.indexOf(b as string));
-    return ['All', ...MONTH_ORDER];
-  }, [candidates, resignations, exitInterviews, manpower, activeTab]);
+    const months = Array.from(
+      new Set(
+        data
+          .map(c => c.month)
+          .filter((m): m is string => !!m && m !== 'Unknown' && m !== 'All' && MONTH_ORDER.includes(m))
+      )
+    ).sort((a, b) => MONTH_ORDER.indexOf(a) - MONTH_ORDER.indexOf(b));
+
+    return ['All', ...(months.length > 0 ? months : MONTH_ORDER)];
+  }, [candidates, resignations, exitInterviews, manpower, jobNetData, activeTab]);
 
   const filteredCandidates = useMemo(() => {
     if (selectedMonth === 'All') return candidates;
@@ -160,52 +135,14 @@ export default function App() {
   }, [exitInterviews, selectedMonth]);
 
   const filteredManpower = useMemo(() => {
-    if (selectedMonth === 'All') return manpower;
-    return manpower.filter(m => m.month === selectedMonth);
-  }, [manpower, selectedMonth]);
+    // Employee headcount is a point-in-time snapshot — not filtered by month
+    return manpower;
+  }, [manpower]);
 
-  const stats = useMemo(() => {
-    const totalCV = filteredCandidates.length;
-    const sentToHOD = filteredCandidates.filter(c => c.sentToHOD).length;
-    const firstInterview = filteredCandidates.filter(c => c.firstInterview).length;
-    const secondInterview = filteredCandidates.filter(c => c.secondInterview).length;
-    const hired = filteredCandidates.filter(c => c.finalStatus === 'Joined').length;
-    const rejected = filteredCandidates.filter(c => c.finalStatus === 'Rejected').length;
-
-    return {
-      totalCV,
-      sentToHOD,
-      firstInterview,
-      secondInterview,
-      hired,
-      rejected
-    };
-  }, [filteredCandidates]);
-
-  const funnelData = useMemo(() => [
-    { name: 'CV Received', value: stats.totalCV, color: '#6366f1' },
-    { name: 'Sent to HOD', value: stats.sentToHOD, color: '#818cf8' },
-    { name: '1st Interview', value: stats.firstInterview, color: '#a5b4fc' },
-    { name: '2nd Interview', value: stats.secondInterview, color: '#c7d2fe' },
-    { name: 'Joined', value: stats.hired, color: '#10b981' },
-  ], [stats]);
-
-  const trendData = useMemo(() => {
-    return MONTH_ORDER.map(month => ({
-      month,
-      cvs: candidates.filter(c => c.month === month).length,
-      hires: candidates.filter(c => c.month === month && c.finalStatus === 'Joined').length,
-    }));
-  }, [candidates]);
-
-  const positionData = useMemo(() => {
-    const positions = Array.from(new Set(filteredCandidates.map(c => c.position)));
-    return positions.map(pos => ({
-      position: pos,
-      applicants: filteredCandidates.filter(c => c.position === pos).length,
-      hires: filteredCandidates.filter(c => c.position === pos && c.finalStatus === 'Joined').length,
-    }));
-  }, [filteredCandidates]);
+  const filteredJobNetData = useMemo(() => {
+    if (selectedMonth === 'All') return jobNetData;
+    return jobNetData.filter(j => extractMonthFromDate(j.cvReceivedDate) === selectedMonth);
+  }, [jobNetData, selectedMonth]);
 
   // Show login screen if not authenticated
   if (!isAuthenticated) {
@@ -225,7 +162,7 @@ export default function App() {
               </div>
               <div>
                 <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-                  {activeTab === 'chairman' ? 'Chairman Executive Summary' :
+                  {activeTab === 'chairman' ? 'Chairman Summary 2.0' :
                    activeTab === 'riskalerts' ? 'HR Risk Alert Center' :
                    activeTab === 'branch' ? 'Branch Performance Scorecard' :
                    activeTab === 'dept' ? 'Department Performance Scorecard' :
@@ -236,7 +173,7 @@ export default function App() {
                    activeTab === 'overview' ? 'Executive Overview' :
                    activeTab === 'recruitment' ? 'Recruitment Overview' :
                    activeTab === 'resignation' ? 'Resignation Analysis' :
-                   activeTab === 'exit' ? 'Exit Interview Insights' :
+                   activeTab === 'exit' ? 'HR Executive Exit 2.0' :
                    activeTab === 'manpower' ? 'Manpower Tracking' :
                    'Job Net'}
                 </h2>
@@ -423,7 +360,7 @@ export default function App() {
               }`}
             >
               <MessageSquare className="w-4 h-4" />
-              Exit Interview
+              Exit 2.0
             </button>
             <button
               onClick={() => setActiveTab('manpower')}
@@ -451,124 +388,53 @@ export default function App() {
         </header>
 
         {activeTab === 'chairman' ? (
-          <ChairmanSummary candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} />
+          <ChairmanSummary
+            candidates={filteredCandidates}
+            resignations={filteredResignations}
+            manpower={filteredManpower}
+            employees={employees}
+            selectedMonth={selectedMonth}
+            onNavigate={tab => setActiveTab(tab as typeof activeTab)}
+          />
         ) : activeTab === 'riskalerts' ? (
           <RiskAlertCenter candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} />
         ) : activeTab === 'branch' ? (
-          <BranchScorecard resignations={filteredResignations} manpower={filteredManpower} />
+          <BranchScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
         ) : activeTab === 'dept' ? (
-          <DeptScorecard />
+          <DeptScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
         ) : activeTab === 'manager' ? (
-          <ManagerScorecard resignations={filteredResignations} manpower={filteredManpower} />
+          <ManagerScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
         ) : activeTab === 'planning' ? (
-          <ManpowerPlanning manpower={filteredManpower} />
+          <ManpowerPlanning manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
         ) : activeTab === 'talent' ? (
           <TalentSuccession employees={employees} manpower={filteredManpower} />
         ) : activeTab === 'exitanalytics' ? (
           <ExitAnalytics exitInterviews={filteredExitInterviews} />
         ) : activeTab === 'overview' ? (
           <OverviewDashboard 
-            candidates={filteredCandidates} 
-            resignations={filteredResignations} 
-            exitInterviews={filteredExitInterviews} 
-            manpower={filteredManpower}
+            candidates={filteredCandidates}
+            allCandidates={candidates}
+            resignations={filteredResignations}
+            allResignations={resignations}
+            exitInterviews={filteredExitInterviews}
+            manpower={manpower}
+            employees={employees}
             selectedMonth={selectedMonth}
           />
         ) : activeTab === 'recruitment' ? (
-          <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-12">
-              <KpiCard title="Total CV" value={stats.totalCV} icon={Users} color="bg-indigo-500" />
-              <KpiCard title="Sent to HOD" value={stats.sentToHOD} icon={Send} color="bg-indigo-400" />
-              <KpiCard title="1st Interview" value={stats.firstInterview} icon={MessageSquare} color="bg-indigo-300" />
-              <KpiCard title="2nd Interview" value={stats.secondInterview} icon={MessageSquare} color="bg-indigo-200" />
-              <KpiCard title="Hired" value={stats.hired} icon={UserPlus} color="bg-emerald-500" />
-              <KpiCard title="Rejected" value={stats.rejected} icon={XCircle} color="bg-rose-500" />
-            </div>
-
-            {/* Main Funnel Section */}
-            <div className="mb-12">
-              <HiringFunnel data={funnelData} />
-            </div>
-
-            {/* By Department Position Count */}
-            <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm mb-12">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h3 className="text-2xl font-bold text-slate-800">By Department</h3>
-                  <p className="text-slate-500 text-sm mt-1 font-medium">Position breakdown for applicants</p>
-                </div>
-                <div className="relative">
-                  <select
-                    value={selectedDeptForPositions}
-                    onChange={(e) => setSelectedDeptForPositions(e.target.value)}
-                    className="appearance-none bg-slate-50 border border-slate-100 rounded-xl px-6 py-2.5 pr-12 text-sm font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all cursor-pointer shadow-sm"
-                  >
-                    {recruitmentDepts.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Filter className="w-4 h-4 text-indigo-400" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-50/50 rounded-[2rem] p-10 border border-slate-100">
-                <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-8 bg-indigo-500 rounded-full" />
-                    <h4 className="text-lg font-bold text-slate-800 uppercase tracking-tight">{selectedDeptForPositions}</h4>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Applicants</span>
-                    <span className="text-2xl font-black text-indigo-600 tabular-nums">{totalApplicantsInDept}</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-6 max-h-[600px] overflow-y-auto pr-6 custom-scrollbar">
-                  {positionsByDept.map((pos) => (
-                    <div key={pos.name} className="flex items-center justify-between py-3 group border-b border-slate-100 last:border-0">
-                      <span className="text-sm font-semibold text-slate-600 group-hover:text-indigo-600 transition-colors">
-                        {pos.name}
-                      </span>
-                      <div className="bg-white border border-slate-200 rounded-xl px-4 py-1.5 shadow-sm min-w-[52px] text-center group-hover:border-indigo-200 group-hover:shadow-indigo-100/50 transition-all">
-                        <span className="text-sm font-bold text-slate-900">{pos.count}</span>
-                      </div>
-                    </div>
-                  ))}
-                  {positionsByDept.length === 0 && (
-                    <div className="col-span-full text-center py-20 text-slate-400 italic text-sm">
-                      No data available for this department
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Pivot Table Section */}
-            <div className="mb-12 space-y-8">
-              <PivotTable2 candidates={filteredCandidates} />
-              <PivotTable3 candidates={filteredCandidates} />
-            </div>
-
-            {/* Secondary Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-              <TrendChart data={trendData} />
-              {/* <PositionChart data={positionData} /> */}
-            </div>
-
-            {/* HOD Analysis Section */}
-            {/* <div className="grid grid-cols-1 gap-8">
-              <HodSentChart candidates={filteredCandidates} />
-            </div> */}
-          </>
+          <RecruitmentDashboard
+            candidates={filteredCandidates}
+            allCandidates={candidates}
+            selectedMonth={selectedMonth}
+          />
         ) : activeTab === 'resignation' ? (
           <ResignationDashboard resignations={filteredResignations} externalMonthFilter={selectedMonth} />
         ) : activeTab === 'exit' ? (
           <ExitInterviewDashboard exitInterviews={filteredExitInterviews} externalMonthFilter={selectedMonth} />
         ) : activeTab === 'manpower' ? (
-          <ManpowerDashboard manpower={filteredManpower} externalMonthFilter={selectedMonth} />
+          <ManpowerDashboard manpower={manpower} employees={employees} externalMonthFilter={selectedMonth} />
         ) : (
-          <JobNetDashboard jobNetData={jobNetData} externalMonthFilter={selectedMonth} />
+          <JobNetDashboard jobNetData={filteredJobNetData} externalMonthFilter={selectedMonth} />
         )}
       </main>
 

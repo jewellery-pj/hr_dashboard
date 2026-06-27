@@ -18,13 +18,12 @@ interface TrendData {
 
 interface TrendChartProps {
   data: TrendData[];
+  embedded?: boolean;
 }
 
-export const TrendChart: React.FC<TrendChartProps> = ({ data }) => {
-  return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm h-[400px]">
-      <h3 className="text-lg font-semibold text-slate-800 mb-6">Monthly Trends</h3>
-      <ResponsiveContainer width="100%" height="90%">
+export const TrendChart: React.FC<TrendChartProps> = ({ data, embedded = false }) => {
+  const chart = (
+    <ResponsiveContainer width="100%" height={embedded ? 280 : '90%'}>
         <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
           <XAxis
@@ -61,7 +60,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data }) => {
             activeDot={{ r: 6 }}
           />
         </LineChart>
-      </ResponsiveContainer>
+    </ResponsiveContainer>
+  );
+
+  if (embedded) return <div className="h-[300px]">{chart}</div>;
+
+  return (
+    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-[400px]">
+      <h3 className="text-base font-bold text-slate-800 mb-4">Monthly Trends</h3>
+      {chart}
     </div>
   );
 };

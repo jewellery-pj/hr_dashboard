@@ -1,6 +1,16 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { JobNetData } from '../data/mockData';
-import { Users, Phone, Calendar, Clock, Award, Building2, Briefcase, Eye } from 'lucide-react';
+import { extractMonthFromDate, sortByDate } from '../utils/dateUtils';
+import { Users, Phone, Calendar, Clock, Award, Building2, Briefcase, Eye, UserCog } from 'lucide-react';
+import {
+  OperationalShell,
+  OperationalHeader,
+  OperationalSection,
+  OperationalOwnership,
+  FilterField,
+  filterSelectClass,
+  filterInputClass,
+} from './OperationalLayout';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface JobNetDashboardProps {
@@ -27,8 +37,8 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
     ['All', ...Array.from(new Set(jobNetData.map(r => r.position)))].sort()
   , [jobNetData]);
 
-  const remarks = useMemo(() => 
-    ['All', ...Array.from(new Set(jobNetData.map(r => r.remark).filter(r => r && r !== '').map(r => r.toLowerCase())))].sort()
+  const remarks = useMemo(() =>
+    ['All', 'Joined', 'Not Joined', ...Array.from(new Set(jobNetData.map(r => r.remark).filter(r => r && r !== '').map(r => r.toLowerCase())))].sort()
   , [jobNetData]);
 
   const filteredData = useMemo(() => {
@@ -39,19 +49,8 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
         r.position.toLowerCase().includes(searchQuery.toLowerCase());
 
       let matchesMonth = true;
-      if (externalMonthFilter !== 'All' && r.cvReceivedDate) {
-        const dateParts = r.cvReceivedDate.split(/[./-]/);
-        if (dateParts.length >= 2) {
-          const monthNum = parseInt(dateParts[1]);
-          const monthMap: Record<string, number> = {
-            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-          };
-          const targetMonth = monthMap[externalMonthFilter] || parseInt(externalMonthFilter);
-          matchesMonth = monthNum === targetMonth;
-        } else {
-          matchesMonth = false;
-        }
+      if (externalMonthFilter !== 'All') {
+        matchesMonth = extractMonthFromDate(r.cvReceivedDate) === externalMonthFilter;
       }
 
       return matchesDept && matchesSearch && matchesMonth;
@@ -76,8 +75,12 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
       }
 
       let matchesJoinedStatus = true;
-      if (joinedStatusFilter !== 'All') {
-        matchesJoinedStatus = r.remark && r.remark.toLowerCase() === joinedStatusFilter.toLowerCase();
+      if (joinedStatusFilter === 'Joined') {
+        matchesJoinedStatus = !!(r.joinedDate && r.joinedDate.trim());
+      } else if (joinedStatusFilter === 'Not Joined') {
+        matchesJoinedStatus = !(r.joinedDate && r.joinedDate.trim());
+      } else if (joinedStatusFilter !== 'All') {
+        matchesJoinedStatus = r.remark?.toLowerCase() === joinedStatusFilter.toLowerCase();
       }
 
       return matchesDepartment && matchesPosition && matchesInterviewStatus && matchesJoinedStatus;
@@ -228,7 +231,7 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
   const firstInterviewPivotData = useMemo(() => {
     // Get unique dates, departments, and positions for first interviews only
     const firstInterviewRecords = filteredData.filter(r => r.firstInterviewDate && r.firstInterviewDate !== '');
-    const dates = Array.from(new Set(firstInterviewRecords.map(c => c.firstInterviewDate))).sort() as string[];
+    const dates = Array.from(new Set(firstInterviewRecords.map(c => c.firstInterviewDate))).sort(sortByDate) as string[];
     const departments = Array.from(new Set(firstInterviewRecords.map(c => c.department))).sort() as string[];
     const positions = Array.from(new Set(firstInterviewRecords.map(c => c.position))).sort() as string[];
 
@@ -267,7 +270,7 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
   const secondInterviewPivotData = useMemo(() => {
     // Get unique dates, departments, and positions for second interviews only
     const secondInterviewRecords = filteredData.filter(r => r.secondInterviewDate && r.secondInterviewDate !== '');
-    const dates = Array.from(new Set(secondInterviewRecords.map(c => c.secondInterviewDate))).sort() as string[];
+    const dates = Array.from(new Set(secondInterviewRecords.map(c => c.secondInterviewDate))).sort(sortByDate) as string[];
     const departments = Array.from(new Set(secondInterviewRecords.map(c => c.department))).sort() as string[];
     const positions = Array.from(new Set(secondInterviewRecords.map(c => c.position))).sort() as string[];
 
@@ -460,71 +463,35 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
     );
   };
 
-  return (
-    <div className="space-y-8">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-            <Users className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Total Applicants</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.totalApplicants}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-            <Calendar className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">With Interview</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.withInterview}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600">
-            <Award className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Avg Score</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.avgScore}</p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center text-green-600">
-            <Briefcase className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">Number of Joined</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.numberOfJoin}</p>
-          </div>
-        </div>
-      </div>
+  const periodLabel = externalMonthFilter === 'All' ? 'All months' : externalMonthFilter;
 
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-4 max-w-4xl mx-auto">
-        <div className="flex-1">
-          <input
-            type="text"
-            placeholder="Search by name or position..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-          />
+  return (
+    <OperationalShell>
+      <OperationalHeader
+        eyebrow="External Hiring Channel"
+        title="Job Net Dashboard"
+        subtitle={`${stats.totalApplicants} applicants · ${periodLabel} · live data`}
+        gradient="purple"
+        metrics={[
+          { value: stats.totalApplicants, label: 'Applicants' },
+          { value: stats.withInterview, label: 'Interviewed' },
+          { value: stats.numberOfJoin, label: 'Joined', accentClass: 'text-emerald-300' },
+          { value: stats.avgScore, label: 'Avg Score' },
+        ]}
+      />
+
+      <OperationalSection title="Search & Filter" subtitle="Department, name, and status">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <FilterField label="Search">
+            <input type="text" placeholder="Name or position..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={filterInputClass} />
+          </FilterField>
+          <FilterField label="Department">
+            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className={filterSelectClass}>
+              {departments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+            </select>
+          </FilterField>
         </div>
-        <div className="w-full md:w-64">
-          <select
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-          >
-            {departments.map(dept => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      </OperationalSection>
 
       {/* Breakdown Lists */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -986,6 +953,10 @@ export const JobNetDashboard: React.FC<JobNetDashboardProps> = ({ jobNetData, ex
           </div>
         </div>
       )}
-    </div>
+      <OperationalOwnership items={[
+        { icon: Users, label: 'Primary', value: 'Recruitment Team' },
+        { icon: UserCog, label: 'Source', value: 'Job Net Sheet' },
+      ]} />
+    </OperationalShell>
   );
 };
