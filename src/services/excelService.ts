@@ -1,6 +1,38 @@
 import Papa from 'papaparse';
 import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData, EmployeeRecord } from '../data/mockData';
-import { isStageCompleted, monthFromResignationDate, normalizeMonth } from '../utils/dateUtils';
+import { isStageCompleted, monthFromResignationDate, normalizeMonth, extractMonthFromDate, MONTH_ORDER } from '../utils/dateUtils';
+
+function resolveMonth(rawMonth: string, fallbackDate: string): string {
+  if (rawMonth) {
+    const fromDate = extractMonthFromDate(rawMonth);
+    if (fromDate) return fromDate;
+    const token = rawMonth.trim().split(/\s+/)[0];
+    const normalized = normalizeMonth(token);
+    if (MONTH_ORDER.includes(normalized)) return normalized;
+  }
+  return monthFromResignationDate(fallbackDate);
+}
+
+function recruitmentCandidateName(
+  row: string[],
+  headers: string[],
+  getVal: (possibleHeaders: string[]) => string | undefined,
+  index: number,
+): string {
+  const direct = getVal(['Name', 'အမည်', 'Candidate Name']);
+  if (direct) return direct;
+
+  const cvInIndices = headers
+    .map((h, i) => (h.replace(/\s+/g, ' ').trim().toLowerCase() === 'cv in' ? i : -1))
+    .filter((i) => i >= 0);
+
+  const channelPattern = /^(viber|job\s*net|facebook|email|walk-?in|linkedin|referral)$/i;
+  for (let i = cvInIndices.length - 1; i >= 0; i--) {
+    const val = row[cvInIndices[i]]?.toString().trim();
+    if (val && !channelPattern.test(val)) return val;
+  }
+  return `Candidate ${index + 1}`;
+}
 
 const RECRUITMENT_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=0';
 const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=421155818';
@@ -59,7 +91,7 @@ export const fetchExcelData = (): Promise<Candidate[]> => {
               return idx !== -1 ? row[idx]?.toString().trim() : undefined;
             };
 
-            const name = getVal(['Name', 'အမည်', 'Candidate Name']) || `Candidate ${index + 1}`;
+            const name = recruitmentCandidateName(row, headers, getVal, index);
             const position = getVal(['Position', 'ရာထူး', 'Designation', 'Job Title']) || 'Unknown';
             const department = getVal(['Department', 'ဌာန', 'Dept', 'Division']) || 'Unknown';
             const rawMonth = getVal(['Month', 'လ', 'Month of CV']) || 'Mar';
@@ -115,11 +147,11 @@ export const fetchResignationData = (): Promise<Resignation[]> => {
         const data = results.data as any[];
         
         const resignations: Resignation[] = data
-          .filter(row => row.Name || row['အမည်'] || row.Department || row['ဌာန'])
+          .filter(row => row['Employee Name'] || row.Name || row['အမည်'] || row.Department || row['ဌာန'])
           .map((row, index) => {
             const rawDate = row['Last Working D'] || row['Last Working Date'] || row['Resignation Date'] || row['ထွက်သည့်ရက်'] || row['Date'] || '';
-            const rawMonth = row.Month || row['လ'] || '';
-            let month = rawMonth ? normalizeMonth(rawMonth) : monthFromResignationDate(rawDate);
+            const rawMonth = row['Resigned Months'] || row.Month || row['လ'] || '';
+            const month = resolveMonth(rawMonth, rawDate);
 
             return {
               id: `res-${index + 1}`,
@@ -164,8 +196,8 @@ export const fetchExitInterviewData = (): Promise<ExitInterview[]> => {
           .filter(row => row.Name || row['Employee Name'] || row['အမည်'])
           .map((row, index) => {
             const rawDate = row['Resignation Date'] || row['Date'] || row['ထွက်သည့်ရက်'] || '';
-            const rawMonth = row.Month || row['လ'] || '';
-            let month = rawMonth ? normalizeMonth(rawMonth) : monthFromResignationDate(rawDate);
+            const rawMonth = row.Months || row.Month || row['လ'] || '';
+            const month = resolveMonth(rawMonth, rawDate);
 
             return {
               id: `exit-${index + 1}`,
@@ -206,28 +238,25 @@ export const fetchManpowerData = (): Promise<Manpower[]> => {
         // Skip header row
         const rows = data.slice(1);
 
-        // The user says "role 5" is Department and "role 7" is Shop Location.
-        // Based on the image:
-        // A(0): No, B(1): FP No, C(2): Employee Name, D(3): Position, E(4): Department, F(5): Section, G(6): Branch, H(7): Shop Location, I(8): Gender
-        // So Dept is index 4, Position is index 3, Branch is index 6, Shop Location is index 7, Gender is index 8.
+        // A(0): No, B(1): FP No, C(2): Employee Name, D(3): Position, E(4): Department,
+        // F(5): Section, G(6): Shop Location, H(7): Division, I(8): Gender
 
-        // Since it's an employee list, we aggregate by Dept, Position, and Location
         const aggregated = rows.reduce((acc, row) => {
           const dept = row[4] || 'Unknown';
           const pos = row[3] || 'Unknown';
-          const branch = row[6] || 'Unknown';
-          const loc = row[7] || 'Unknown';
+          const shopLocation = row[6] || 'Unknown';
+          const branch = row[7] || 'Unknown';
           const gender = row[8] || 'Unknown';
 
           if (dept === 'Unknown' && pos === 'Unknown') return acc;
 
-          const key = `${dept}|${pos}|${loc}|${gender}`;
+          const key = `${dept}|${pos}|${shopLocation}|${gender}`;
           if (!acc[key]) {
             acc[key] = {
               department: dept,
               position: pos,
-              shopLocation: loc,
-              branch: branch,
+              shopLocation,
+              branch,
               gender: gender,
               month: 'All',
               actual: 0
@@ -279,37 +308,24 @@ export const fetchJobNetData = (): Promise<JobNetData[]> => {
         console.log('Data rows after skipping header:', rows.length);
         console.log('First 3 data rows:', rows.slice(0, 3));
 
-        // Column mapping based on standard structure:
-        // A(0): စဉ် (No)
-        // B(1): Name (အမည်)
-        // C(2): Position (ရာထူး)
-        // D(3): Ph No.
-        // E(4): Department
-        // F(5): CV အဝင်ရက်စွဲ (CV Received Date)
-        // G(6): First Interview Date
-        // H(7): Time
-        // I(8): အင်တာဗျူးရမှတ် (Interview Score)
-        // J(9): Second Interview Date
-        // K(10): Second Interview Time
-        // L(11): Second Interview Date (or similar)
-        // M(12): 
-        // N(13): Remark
-        // O(14): Offer
-        // P(15): Joined Date
+        // A(0): စဉ်, B(1): CV In, C(2): အမည်, D(3): ရာထူး, E(4): Department,
+        // F(5): Ph No, G(6): CV အဝင်ရက်စွဲ, H(7): First Interview, I(8): Time,
+        // J(9): Score, K(10): Salary, L(11): Second Interview, M(12): Time,
+        // N(13): မှတ်ချက်, O(14): Offer, P(15): Joined Date, Q(16): Remark
 
         const jobNetData: JobNetData[] = rows
-          .filter(row => row[1] && row[1].toString().trim() !== '')
+          .filter(row => row[2] && row[2].toString().trim() !== '')
           .map((row, index) => ({
             id: `jobnet-${index + 1}`,
-            name: row[1] || 'Unknown',
-            position: row[2] || 'Unknown',
-            phNo: row[3] || '',
+            name: row[2] || 'Unknown',
+            position: row[3] || 'Unknown',
+            phNo: row[5] || '',
             department: row[4] || 'Unknown',
-            cvReceivedDate: row[5] || '',
-            firstInterviewDate: row[6] || '',
-            time: row[7] || '',
-            interviewScore: parseNumber(row[8]),
-            secondInterviewDate: row[9] || row[11] || '',
+            cvReceivedDate: row[6] || '',
+            firstInterviewDate: row[7] || '',
+            time: row[8] || '',
+            interviewScore: parseNumber(row[9]),
+            secondInterviewDate: row[11] || '',
             remark: row[16] || '',
             joinedDate: row[15] || '',
             offer: row[14] || '',
@@ -349,8 +365,8 @@ export const fetchEmployeeData = (): Promise<EmployeeRecord[]> => {
           const name = (row[2] || '').toString().trim();
           const position = (row[3] || '').toString().trim();
           const department = (row[4] || '').toString().trim();
-          const branch = (row[6] || '').toString().trim() || undefined;
-          const shopLocation = (row[7] || '').toString().trim() || undefined;
+          const shopLocation = (row[6] || '').toString().trim() || undefined;
+          const branch = (row[7] || '').toString().trim() || undefined;
 
           if (!name || !position || !department) continue;
           if (name.toLowerCase() === 'total' || name.toLowerCase().includes('grand total')) continue;
