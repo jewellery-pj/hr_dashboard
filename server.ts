@@ -13,6 +13,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const SPREADSHEET_ID = "13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE";
+const SHEET_GID_FALLBACKS: Record<string, string> = {
+  'Vacant Position Readiness (%)': '598467076',
+};
 
 // Initialize SQLite database
 const dbPath = path.join(__dirname, 'hr_dashboard.db');
@@ -65,13 +68,15 @@ async function startServer() {
   app.get('/api/sheet-csv', async (req, res) => {
     const sheet = typeof req.query.sheet === 'string' ? req.query.sheet : '';
     const gid = typeof req.query.gid === 'string' ? req.query.gid : '';
+    const fallbackGid = sheet ? SHEET_GID_FALLBACKS[sheet] : '';
+    const resolvedGid = gid || fallbackGid;
 
-    if (!sheet && !gid) {
+    if (!sheet && !resolvedGid) {
       return res.status(400).json({ error: 'sheet or gid query parameter required' });
     }
 
-    const url = gid
-      ? `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`
+    const url = resolvedGid
+      ? `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${encodeURIComponent(resolvedGid)}`
       : `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
 
     try {
