@@ -30,11 +30,15 @@ jobs:
           npm run build
 
       - name: Deploy via HTTPS webhook
-        if: ${{ secrets.DEPLOY_WEBHOOK_URL != '' && secrets.DEPLOY_WEBHOOK_SECRET != '' }}
         env:
           DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
           DEPLOY_WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
         run: |
+          if [ -z "$DEPLOY_WEBHOOK_URL" ] || [ -z "$DEPLOY_WEBHOOK_SECRET" ]; then
+            echo "::error::DEPLOY_WEBHOOK_URL and DEPLOY_WEBHOOK_SECRET must be configured in repository secrets."
+            exit 1
+          fi
+
           echo "Triggering production deploy via webhook..."
           for attempt in 1 2 3; do
             if curl -fsS -X POST "$DEPLOY_WEBHOOK_URL" \
@@ -47,19 +51,6 @@ jobs:
             echo "Webhook attempt $attempt failed, retrying in 5s..."
             sleep 5
           done
-          echo "Webhook deploy failed after 3 attempts"
-          exit 1
 
-      - name: Deploy via SSH (fallback)
-        if: ${{ secrets.DEPLOY_WEBHOOK_URL == '' || secrets.DEPLOY_WEBHOOK_SECRET == '' }}
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          timeout: 60s
-          command_timeout: 10m
-          script_stop: true
-          script: |
-            cd /var/www/hr_dashboard
-            bash deploy.sh
+          echo "::error::Webhook deploy failed after 3 attempts"
+          exit 1
