@@ -2,8 +2,12 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import { spawn } from "child_process";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +86,33 @@ async function startServer() {
       console.error('Sheet proxy error:', error);
       res.status(502).json({ error: 'Failed to fetch sheet data' });
     }
+  });
+
+  // CI/CD deploy webhook (HTTPS — avoids GitHub Actions SSH firewall issues)
+  app.post('/api/deploy-webhook', (req, res) => {
+    const secret = process.env.DEPLOY_WEBHOOK_SECRET;
+    if (!secret) {
+      return res.status(503).json({ error: 'Deploy webhook not configured' });
+    }
+
+    const authHeader = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim();
+    const headerSecret = typeof req.headers['x-deploy-secret'] === 'string'
+      ? req.headers['x-deploy-secret']
+      : '';
+    if (authHeader !== secret && headerSecret !== secret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const deployScript = path.join(process.cwd(), 'deploy.sh');
+    const child = spawn('bash', [deployScript], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    child.unref();
+
+    res.status(202).json({ success: true, message: 'Deploy started' });
   });
 
   // Change password endpoint

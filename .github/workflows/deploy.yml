@@ -29,12 +29,36 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy to production server
+      - name: Deploy via HTTPS webhook
+        if: ${{ secrets.DEPLOY_WEBHOOK_URL != '' && secrets.DEPLOY_WEBHOOK_SECRET != '' }}
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}
+        run: |
+          echo "Triggering production deploy via webhook..."
+          for attempt in 1 2 3; do
+            if curl -fsS -X POST "$DEPLOY_WEBHOOK_URL" \
+              -H "Authorization: Bearer $DEPLOY_WEBHOOK_SECRET" \
+              -H "Content-Type: application/json" \
+              --max-time 30; then
+              echo "Deploy accepted by server"
+              exit 0
+            fi
+            echo "Webhook attempt $attempt failed, retrying in 5s..."
+            sleep 5
+          done
+          echo "Webhook deploy failed after 3 attempts"
+          exit 1
+
+      - name: Deploy via SSH (fallback)
+        if: ${{ secrets.DEPLOY_WEBHOOK_URL == '' || secrets.DEPLOY_WEBHOOK_SECRET == '' }}
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 60s
+          command_timeout: 10m
           script_stop: true
           script: |
             cd /var/www/hr_dashboard

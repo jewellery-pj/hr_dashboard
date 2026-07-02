@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "deploy": "bash deploy.sh"
+    "deploy": "bash deploy.sh",
+    "deploy:remote": "bash scripts/deploy-remote.sh"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
