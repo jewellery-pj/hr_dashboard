@@ -497,36 +497,37 @@ export const fetchSuccessionReadinessLinks = (): Promise<SuccessionReadinessLink
       skipEmptyLines: true,
       complete: (results) => {
         const rows = results.data as string[][];
-        if (rows.length < 2) {
+        if (rows.length < 3) {
           resolve([]);
           return;
         }
 
-        const headers = rows[0].map((header) => String(header || '').trim());
-        const vacantColumns = headers
-          .map((label, index) => ({ label, index }))
-          .filter((column) => column.index >= 9 && column.label);
-
         const links: SuccessionReadinessLink[] = [];
-        for (const row of rows.slice(1)) {
-          const employeeName = (row[2] || '').toString().trim();
-          const employeePosition = (row[3] || '').toString().trim();
-          const employeeDepartment = (row[4] || '').toString().trim();
-          if (!employeeName) continue;
+        let currentDepartment = '';
+        for (const row of rows.slice(2)) {
+          const department = (row[1] || '').toString().trim();
+          if (department) currentDepartment = department;
+          if (!currentDepartment) continue;
 
-          for (const column of vacantColumns) {
-            const readinessPercent = parseReadinessPercent(row[column.index]);
-            if (readinessPercent === undefined) continue;
+          const successorName = (row[2] || '').toString().trim();
+          const successorPosition = (row[3] || '').toString().trim();
+          const currentHolderName = (row[4] || '').toString().trim();
+          const currentHolderPosition = (row[5] || '').toString().trim();
+          const readinessPercent = parseReadinessPercent(row[6]);
 
-            links.push({
-              id: `ready-link-${links.length + 1}`,
-              employeeName,
-              employeeDepartment,
-              employeePosition,
-              vacantPosition: column.label,
-              readinessPercent,
-            });
-          }
+          const hasAnyPerson = !!successorName || !!currentHolderName;
+          if (!hasAnyPerson || readinessPercent === undefined) continue;
+
+          links.push({
+            id: `ready-link-${links.length + 1}`,
+            employeeName: successorName || 'Vacant',
+            employeeDepartment: currentDepartment,
+            employeePosition: successorPosition || '',
+            vacantPosition: currentHolderPosition || 'Unknown',
+            readinessPercent,
+            currentHolderName,
+            currentHolderPosition,
+          });
         }
 
         resolve(links);

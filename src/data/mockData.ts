@@ -115,6 +115,8 @@ export interface SuccessionReadinessLink {
   employeePosition: string;
   vacantPosition: string;
   readinessPercent: number;
+  currentHolderName?: string;
+  currentHolderPosition?: string;
 }
 
 export interface AttendanceRecord {

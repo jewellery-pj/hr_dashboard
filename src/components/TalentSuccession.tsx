@@ -40,38 +40,9 @@ interface SuccessionRow {
   actual?: number;
 }
 
-function getPositionLevel(position: string): number {
-  const lower = position.toLowerCase();
-  if (lower.includes('gm') || lower.includes('general manager') || lower.includes('chief') || lower.includes('director')) return 5;
-  if (lower.includes('deputy') && lower.includes('manager')) return 4;
-  if (lower.includes('manager') || lower.includes('head')) return 4;
-  if (lower.includes('supervisor') || lower.includes('leader')) return 3;
-  return 1;
-}
-
-function isTopCriticalPosition(position: string): boolean {
-  const level = getPositionLevel(position);
-  return level >= 4;
-}
-
-function formatCriticalLabel(position: string, department: string): string {
-  const lower = position.toLowerCase();
-  if (lower.includes('gm') || lower.includes('general manager')) {
-    const deptShort = department.split(' ')[0];
-    return `${deptShort} GM`;
-  }
-  if (lower.includes('director') || lower.includes('chief')) return position;
-  if (lower.includes('head') || lower.includes('manager')) return `${department} — ${position}`;
-  return position;
-}
-
-function computeReadiness(currentLevel: number, successorLevel: number): number {
-  if (successorLevel <= 0) return 0;
-  const diff = currentLevel - successorLevel;
-  if (diff === 0) return 90;
-  if (diff === 1) return 80;
-  if (diff === 2) return 55;
-  return 30;
+function isVacantName(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return /vacant|vancant|open/i.test(name);
 }
 
 function getRiskType(
@@ -85,143 +56,40 @@ function getRiskType(
   return { riskType: 'none', chairmanReview: false };
 }
 
-function normalizePositionKey(position: string): string {
-  return position.trim().toLowerCase();
-}
-
 export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
-  employees,
-  manpower,
-  vacantList,
-  vacantReadiness,
+  employees: _employees,
+  manpower: _manpower,
+  vacantList: _vacantList,
+  vacantReadiness: _vacantReadiness,
   successionReadinessLinks,
 }) => {
   const successionData = useMemo<SuccessionRow[]>(() => {
-    if (employees.length === 0 && manpower.length === 0 && vacantList.length === 0) return [];
+    if (successionReadinessLinks.length === 0) return [];
 
-    const readinessByKey = new Map<string, number>();
-    for (const row of vacantReadiness) {
-      if (typeof row.readinessPercent !== 'number') continue;
-      readinessByKey.set(`${row.position}||${row.department}`, row.readinessPercent);
-    }
-
-    const bestLinkByPosition = new Map<string, SuccessionReadinessLink>();
-    for (const link of successionReadinessLinks) {
-      const key = `${normalizePositionKey(link.vacantPosition)}||${link.employeeDepartment.trim()}`;
-      const existing = bestLinkByPosition.get(key);
-      if (!existing || link.readinessPercent > existing.readinessPercent) {
-        bestLinkByPosition.set(key, link);
-      }
-    }
-
-    const rows: SuccessionRow[] = [];
-    const seen = new Set<string>();
-
-    const positionMap = new Map<string, { position: string; department: string; holders: EmployeeRecord[] }>();
-    for (const emp of employees) {
-      if (!isTopCriticalPosition(emp.position)) continue;
-      const key = `${emp.position}||${emp.department}`;
-      if (!positionMap.has(key)) {
-        positionMap.set(key, { position: emp.position, department: emp.department, holders: [] });
-      }
-      positionMap.get(key)!.holders.push(emp);
-    }
-
-    for (const [key, data] of positionMap.entries()) {
-      seen.add(key);
-      const holders = data.holders.sort(
-        (a, b) => getPositionLevel(b.position) - getPositionLevel(a.position)
+    const rows = successionReadinessLinks.map((link): SuccessionRow => {
+      const isVacant = isVacantName(link.currentHolderName);
+      const hasSuccessor = !isVacantName(link.employeeName);
+      const { riskType, chairmanReview } = getRiskType(
+        isVacant,
+        hasSuccessor,
+        link.readinessPercent,
       );
-      const currentHolder = holders[0]?.name || 'Vacant';
-      const isVacant = !holders.length;
 
-      const currentLevel = getPositionLevel(data.position);
-      const sameDept = employees.filter(
-        e => e.department === data.department && e.position !== data.position
-      );
-      const ranked = sameDept
-        .map(e => ({ emp: e, level: getPositionLevel(e.position) }))
-        // Successor should be same level or one level below, not above current role.
-        .filter(c => c.level >= Math.max(1, currentLevel - 1) && c.level <= currentLevel)
-        .sort((a, b) => b.level - a.level);
-
-      const sheetLink = bestLinkByPosition.get(`${normalizePositionKey(data.position)}||${data.department.trim()}`);
-      const successor = sheetLink
-        ? { name: sheetLink.employeeName, position: sheetLink.employeePosition }
-        : ranked[0]?.emp || null;
-      const calculatedReadiness = isVacant ? 0 : successor
-        ? computeReadiness(currentLevel, getPositionLevel(successor.position))
-        : 0;
-      const readiness = sheetLink?.readinessPercent
-        ?? readinessByKey.get(key)
-        ?? calculatedReadiness;
-
-      const mpRow = manpower.find(m => m.position === data.position && m.department === data.department);
-      const { riskType, chairmanReview } = getRiskType(isVacant, !!successor, readiness);
-
-      rows.push({
-        id: key,
-        position: formatCriticalLabel(data.position, data.department),
-        department: data.department,
-        currentHolder: isVacant ? 'Vacant' : currentHolder,
-        successor: successor?.name || null,
-        readiness,
+      return {
+        id: link.id,
+        position: `${link.employeeDepartment} — ${link.currentHolderPosition || link.vacantPosition}`,
+        department: link.employeeDepartment,
+        currentHolder: link.currentHolderName || 'Vacant',
+        successor: hasSuccessor ? link.employeeName : null,
+        readiness: link.readinessPercent,
         isVacant,
         riskType,
         chairmanReview,
-        budgeted: mpRow?.budgeted,
-        actual: mpRow?.actual,
-      });
-    }
-
-    for (const m of manpower) {
-      if (!isTopCriticalPosition(m.position)) continue;
-      const key = `${m.position}||${m.department}`;
-      if (seen.has(key)) continue;
-
-      const vacant = (m.budgeted || 0) > (m.actual || 0);
-      const hasEmployee = employees.some(
-        e => e.department === m.department && e.position === m.position
-      );
-      if (!vacant && hasEmployee) continue;
-
-      seen.add(key);
-      rows.push({
-        id: key,
-        position: formatCriticalLabel(m.position, m.department),
-        department: m.department,
-        currentHolder: 'Vacant',
-        successor: null,
-        readiness: 0,
-        isVacant: true,
-        riskType: 'vacant',
-        chairmanReview: true,
-        budgeted: m.budgeted,
-        actual: m.actual,
-      });
-    }
-
-    for (const vacant of vacantList.filter(v => v.shortage > 0)) {
-      const genericKey = `Vacant Critical Role||${vacant.department}`;
-      if (seen.has(genericKey)) continue;
-      rows.push({
-        id: genericKey,
-        position: `Vacant Critical Role (${vacant.shortage})`,
-        department: vacant.department,
-        currentHolder: 'Vacant',
-        successor: null,
-        readiness: 0,
-        isVacant: true,
-        riskType: 'vacant',
-        chairmanReview: true,
-        budgeted: vacant.sanctionedStrength,
-        actual: vacant.activeHeadcount,
-      });
-      seen.add(genericKey);
-    }
+      };
+    });
 
     return rows.sort((a, b) => a.readiness - b.readiness);
-  }, [employees, manpower, vacantReadiness, vacantList, successionReadinessLinks]);
+  }, [successionReadinessLinks]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -249,33 +117,15 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
   );
 
   const renderDetail = (row: SuccessionRow) => {
-    const deptEmployees = employees.filter(e => e.department === row.department);
     return (
       <div className="space-y-3">
         <p className="text-sm text-slate-600">
           Department: <strong>{row.department}</strong> · Readiness: <strong>{row.readiness}%</strong>
           · Successor: <strong>{row.successor ?? '—'}</strong>
         </p>
-        {deptEmployees.length > 0 && (
-          <div className="overflow-x-auto max-h-40 overflow-y-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/80">
-                  <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-400 uppercase">Name</th>
-                  <th className="px-4 py-2 text-left text-[10px] font-bold text-slate-400 uppercase">Position</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deptEmployees.map((e, i) => (
-                  <tr key={i} className="border-t border-slate-100">
-                    <td className="px-4 py-2 text-sm font-bold text-slate-700">{e.name}</td>
-                    <td className="px-4 py-2 text-sm text-slate-600">{e.position}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <p className="text-xs text-slate-500">
+          Current Holder: <strong>{row.currentHolder}</strong>
+        </p>
       </div>
     );
   };
@@ -289,7 +139,7 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
             <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-2">Leadership Pipeline</p>
             <h2 className="text-xl md:text-2xl font-black tracking-tight">Talent & Succession Dashboard</h2>
             <p className="text-sm text-white/60 mt-2">
-              {successionData.length} critical positions · live employee data
+              {successionData.length} positions · source: Readiness (%) sheet
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 flex-shrink-0">
@@ -321,7 +171,7 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
           <Crown className="w-10 h-10 text-slate-300 mx-auto mb-3" />
           <p className="text-base font-bold text-slate-700">No Succession Data Available</p>
-          <p className="text-sm text-slate-400 mt-1">Load employee records with GM/Manager positions.</p>
+          <p className="text-sm text-slate-400 mt-1">No rows found in Readiness (%) sheet.</p>
         </div>
       ) : (
         <>
