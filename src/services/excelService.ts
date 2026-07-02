@@ -52,7 +52,7 @@ const EXIT_INTERVIEW_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8
 const MANPOWER_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=286117473';
 const JOBNET_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=195767405';
 const VACANT_LIST_CSV_URL = '/api/sheet-csv?sheet=Vacant%20List';
-const VACANT_READINESS_CSV_URL = '/api/sheet-csv?sheet=Vacant%20Position%20Readiness%20(%)';
+const VACANT_READINESS_CSV_URL = '/api/sheet-csv?gid=598467076';
 const ATTENDANCE_CSV_URL = '/api/sheet-csv?sheet=Attendance';
 
 const parseNumber = (val: any): number => {
