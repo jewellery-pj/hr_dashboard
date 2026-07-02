@@ -36,6 +36,7 @@ import {
   OperationalTh,
   OperationalOwnership,
 } from './OperationalLayout';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
 
 interface ChairmanSummaryProps {
   candidates: Candidate[];
@@ -116,7 +117,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
     const hasBudgetData = totalBudgeted > 0;
 
     const criticalVacancies = hasBudgetData
-      ? manpower.filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= 5).length
+      ? manpower.filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= SCORE_THRESHOLDS.manpowerShortage.critical).length
       : null;
 
     const joinedWithDates = candidates.filter(c => c.finalStatus === 'Joined' && c.joinedDate && c.date);
@@ -176,11 +177,11 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       : 'Pending data';
 
     const vacancyVerdict = stats.vacancyRate !== null
-      ? formatGap(stats.vacancyRate, 5, false, '%')
+      ? formatGap(stats.vacancyRate, SCORE_THRESHOLDS.vacancyRate.chairmanTarget, false, '%')
       : 'Pending data';
 
-    const turnoverVerdict = formatGap(stats.turnoverRate, 10, false, '%');
-    const retentionVerdict = formatGap(stats.retentionRate, 90, true, '%');
+    const turnoverVerdict = formatGap(stats.turnoverRate, SCORE_THRESHOLDS.turnover.warning, false, '%');
+    const retentionVerdict = formatGap(stats.retentionRate, SCORE_THRESHOLDS.retention.target, true, '%');
 
     const criticalVerdict = stats.criticalVacancies !== null
       ? stats.criticalVacancies === 0
@@ -189,11 +190,11 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       : 'Pending data';
 
     const ttfVerdict = stats.avgTimeToFill !== null
-      ? formatGap(stats.avgTimeToFill, 15, false, 'd', 0)
+      ? formatGap(stats.avgTimeToFill, SCORE_THRESHOLDS.timeToFill.targetDays, false, 'd', 0)
       : 'Pending data';
 
     const successorVerdict = stats.successorCoverage !== null
-      ? formatGap(stats.successorCoverage, 80, true, '%', 0)
+      ? formatGap(stats.successorCoverage, SCORE_THRESHOLDS.successionReadiness.target, true, '%', 0)
       : 'Pending data';
 
     return [
@@ -210,9 +211,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       {
         kpi: 'Vacancy Rate',
         current: stats.vacancyRate !== null ? `${stats.vacancyRate.toFixed(1)}%` : '—',
-        shouldBe: 'Max 5%',
+        shouldBe: `Max ${SCORE_THRESHOLDS.vacancyRate.chairmanTarget}%`,
         verdict: vacancyVerdict,
-        status: stats.vacancyRate !== null ? getMetricStatus(stats.vacancyRate, 5, false) : 'yellow',
+        status: stats.vacancyRate !== null ? getMetricStatus(stats.vacancyRate, SCORE_THRESHOLDS.vacancyRate.chairmanTarget, false) : 'yellow',
         icon: AlertTriangle,
         category: 'Recruitment',
         hasData: stats.vacancyRate !== null,
@@ -220,9 +221,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       {
         kpi: 'Monthly Turnover',
         current: `${stats.turnoverRate.toFixed(1)}%`,
-        shouldBe: 'Max 10%',
+        shouldBe: `Max ${SCORE_THRESHOLDS.turnover.warning}%`,
         verdict: turnoverVerdict,
-        status: getMetricStatus(stats.turnoverRate, 10, false),
+        status: getMetricStatus(stats.turnoverRate, SCORE_THRESHOLDS.turnover.warning, false),
         icon: TrendingDown,
         category: 'Retention',
         hasData: true,
@@ -230,9 +231,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       {
         kpi: 'Retention Rate',
         current: `${stats.retentionRate.toFixed(1)}%`,
-        shouldBe: 'Min 90%',
+        shouldBe: `Min ${SCORE_THRESHOLDS.retention.target}%`,
         verdict: retentionVerdict,
-        status: getMetricStatus(stats.retentionRate, 90, true),
+        status: getMetricStatus(stats.retentionRate, SCORE_THRESHOLDS.retention.target, true),
         icon: ShieldCheck,
         category: 'Retention',
         hasData: true,
@@ -242,7 +243,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
         current: stats.criticalVacancies !== null ? stats.criticalVacancies.toString() : '—',
         shouldBe: 'Zero',
         verdict: criticalVerdict,
-        status: stats.criticalVacancies !== null ? (stats.criticalVacancies === 0 ? 'green' : stats.criticalVacancies <= 5 ? 'yellow' : 'red') : 'yellow',
+        status: stats.criticalVacancies !== null ? (stats.criticalVacancies === 0 ? 'green' : stats.criticalVacancies <= SCORE_THRESHOLDS.manpowerShortage.critical ? 'yellow' : 'red') : 'yellow',
         icon: Siren,
         category: 'Recruitment',
         hasData: stats.criticalVacancies !== null,
@@ -250,9 +251,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       {
         kpi: 'Time to Fill',
         current: stats.avgTimeToFill !== null ? `${Math.round(stats.avgTimeToFill)} days` : '—',
-        shouldBe: 'Max 15 days',
+        shouldBe: `Max ${SCORE_THRESHOLDS.timeToFill.targetDays} days`,
         verdict: ttfVerdict,
-        status: stats.avgTimeToFill !== null ? getMetricStatus(stats.avgTimeToFill, 15, false) : 'yellow',
+        status: stats.avgTimeToFill !== null ? getMetricStatus(stats.avgTimeToFill, SCORE_THRESHOLDS.timeToFill.targetDays, false) : 'yellow',
         icon: Clock,
         category: 'Recruitment',
         hasData: stats.avgTimeToFill !== null,
@@ -272,7 +273,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
         current: `${stats.totalHires - stats.totalResignations >= 0 ? '+' : ''}${stats.totalHires - stats.totalResignations}`,
         shouldBe: 'Net positive',
         verdict: stats.totalHires >= stats.totalResignations ? 'Growing' : `${stats.totalResignations - stats.totalHires} net loss`,
-        status: stats.totalHires >= stats.totalResignations ? 'green' : stats.totalResignations - stats.totalHires > 5 ? 'red' : 'yellow',
+        status: stats.totalHires >= stats.totalResignations ? 'green' : stats.totalResignations - stats.totalHires > SCORE_THRESHOLDS.manpowerShortage.critical ? 'red' : 'yellow',
         icon: Activity,
         category: 'Workforce',
         hasData: true,
@@ -290,9 +291,9 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       {
         kpi: 'Successor Coverage',
         current: stats.successorCoverage !== null ? `${stats.successorCoverage.toFixed(0)}%` : '—',
-        shouldBe: 'Min 80%',
+        shouldBe: `Min ${SCORE_THRESHOLDS.successionReadiness.target}%`,
         verdict: successorVerdict,
-        status: stats.successorCoverage !== null ? getMetricStatus(stats.successorCoverage, 80, true) : 'yellow',
+        status: stats.successorCoverage !== null ? getMetricStatus(stats.successorCoverage, SCORE_THRESHOLDS.successionReadiness.target, true) : 'yellow',
         icon: Crown,
         category: 'Talent',
         hasData: stats.successorCoverage !== null,
@@ -401,7 +402,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
       }));
 
     const criticalVacantPositions = manpower
-      .filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= 5)
+      .filter(m => Math.max(0, (m.budgeted || 0) - (m.actual || 0)) >= SCORE_THRESHOLDS.manpowerShortage.critical)
       .map(m => ({
         department: m.department,
         position: m.position,
@@ -613,7 +614,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
                   <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-600">{h.name.charAt(0)}</div><span className="text-sm font-bold text-slate-700">{h.name}</span></div></td>
                   <td className="px-4 py-3 text-sm text-slate-600">{h.department}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{h.position}</td>
-                  <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${(h.timeToFill as number) > 15 ? 'text-rose-600' : 'text-emerald-600'}`}>{h.timeToFill}</td>
+                  <td className={`px-4 py-3 text-right text-sm font-black tabular-nums ${(h.timeToFill as number) > SCORE_THRESHOLDS.timeToFill.targetDays ? 'text-rose-600' : 'text-emerald-600'}`}>{h.timeToFill}</td>
                 </tr>
               ))}
             </tbody>
@@ -706,7 +707,7 @@ export const ChairmanSummary: React.FC<ChairmanSummaryProps> = ({
         gradient={headerGradient}
         metrics={[
           { value: stats.totalStaff.toLocaleString(), label: 'Total Staff' },
-          { value: `${stats.turnoverRate.toFixed(1)}%`, label: 'Turnover', accentClass: stats.turnoverRate > 10 ? 'text-rose-300' : undefined },
+          { value: `${stats.turnoverRate.toFixed(1)}%`, label: 'Turnover', accentClass: stats.turnoverRate > SCORE_THRESHOLDS.turnover.warning ? 'text-rose-300' : undefined },
           { value: stats.vacancyRate !== null ? `${stats.vacancyRate.toFixed(1)}%` : '—', label: 'Vacancy' },
           { value: healthSummary.title, label: 'Verdict', accentClass: overallHealth === 'red' ? 'text-rose-300' : overallHealth === 'yellow' ? 'text-amber-200' : 'text-emerald-200' },
         ]}

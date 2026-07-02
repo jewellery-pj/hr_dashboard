@@ -1,6 +1,18 @@
 import Papa from 'papaparse';
-import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, mockJobNetData, EmployeeRecord } from '../data/mockData';
+import {
+  Candidate,
+  Resignation,
+  ExitInterview,
+  Manpower,
+  JobNetData,
+  EmployeeRecord,
+  VacantListRow,
+  VacantPositionReadinessRow,
+  AttendanceRecord,
+  SuccessionReadinessLink,
+} from '../data/mockData';
 import { isStageCompleted, monthFromResignationDate, normalizeMonth, extractMonthFromDate, MONTH_ORDER } from '../utils/dateUtils';
+import { findHeaderIndex, getCell } from '../utils/sheetHeaders';
 
 function resolveMonth(rawMonth: string, fallbackDate: string): string {
   if (rawMonth) {
@@ -39,6 +51,9 @@ const RESIGNATION_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7
 const EXIT_INTERVIEW_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=773827159';
 const MANPOWER_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=286117473';
 const JOBNET_CSV_URL = 'https://docs.google.com/spreadsheets/d/13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE/export?format=csv&gid=195767405';
+const VACANT_LIST_CSV_URL = '/api/sheet-csv?sheet=Vacant%20List';
+const VACANT_READINESS_CSV_URL = '/api/sheet-csv?sheet=Vacant%20Position%20Readiness%20(%)';
+const ATTENDANCE_CSV_URL = '/api/sheet-csv?sheet=Attendance';
 
 const parseNumber = (val: any): number => {
   if (typeof val === 'number') return val;
@@ -46,6 +61,14 @@ const parseNumber = (val: any): number => {
   const cleaned = val.toString().replace(/[^0-9.-]/g, '');
   const parsed = parseInt(cleaned);
   return isNaN(parsed) ? 0 : parsed;
+};
+
+const parseReadinessPercent = (val: any): number | undefined => {
+  if (val === null || val === undefined) return undefined;
+  const cleaned = val.toString().replace(/[^0-9.-]/g, '');
+  if (!cleaned) return undefined;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 export const fetchExcelData = (): Promise<Candidate[]> => {
@@ -94,21 +117,26 @@ export const fetchExcelData = (): Promise<Candidate[]> => {
             const name = recruitmentCandidateName(row, headers, getVal, index);
             const position = getVal(['Position', 'ရာထူး', 'Designation', 'Job Title']) || 'Unknown';
             const department = getVal(['Department', 'ဌာန', 'Dept', 'Division']) || 'Unknown';
-            const rawMonth = getVal(['Month', 'လ', 'Month of CV']) || 'Mar';
-            const month = normalizeMonth(rawMonth);
-            const date = getVal(['CV ရရှိသည့် ရက်', 'Date', 'CV Received Date', 'CV Date']) || 'Today';
+            const rawMonth = getVal(['Month', 'လ', 'Month of CV']);
+            const month = rawMonth ? normalizeMonth(rawMonth) : 'Unknown';
+            const date = getVal(['CV ရရှိသည့် ရက်', 'Date', 'CV Received Date', 'CV Date']) || '';
             const joinedDate = getVal(['Joined Date', 'Join Date', 'New Join Date', 'ဝင်ရောက်သည့်ရက်']);
-            
-            const sentToHODVal = getVal(['Sent to HOD', 'HOD', 'HOD သို့ ပေးပို့ပြီး', 'HOD Sent']);
-            const sentToHOD = isStageCompleted(sentToHODVal);
 
-            const firstIntVal = getVal(['1st Interview', 'ပထမအကြိမ် အင်တာဗျူး', 'First Interview', '1st Int']);
-            const firstInterview = isStageCompleted(firstIntVal);
+            const hodSentIdx = findHeaderIndex(headers, ['hod ထံ ဘယ်နေ့', 'sent to hod', 'hod sent']);
+            const firstIntIdx = findHeaderIndex(headers, ['first interview date']);
+            const secondIntIdx = findHeaderIndex(headers, ['second interview date']);
+            const finalResultIdx = findHeaderIndex(headers, ['result'], { last: true });
+            const acceptIdx = findHeaderIndex(headers, ['employee accept', 'candidate accept']);
 
-            const secondIntVal = getVal(['2nd Interview', 'ဒုတိယအကြိမ် အင်တာဗျူး', 'Second Interview', '2nd Int']);
-            const secondInterview = isStageCompleted(secondIntVal);
+            const sentToHOD = isStageCompleted(getCell(row, hodSentIdx));
+            const firstInterview = isStageCompleted(getCell(row, firstIntIdx));
+            const secondInterview = isStageCompleted(getCell(row, secondIntIdx));
 
-            const finalStatusVal = getVal(['Final Status', 'နောက်ဆုံးအခြေအနေ', 'Status', 'Result']) || 'In Progress';
+            const finalStatusVal = [
+              getCell(row, finalResultIdx),
+              getCell(row, acceptIdx),
+              getVal(['Final Status', 'နောက်ဆုံးအခြေအနေ', 'Status']),
+            ].filter(Boolean).join(' ') || 'In Progress';
             let finalStatus: Candidate['finalStatus'] = 'In Progress';
             if (finalStatusVal.toLowerCase().includes('join') || !!joinedDate) finalStatus = 'Joined';
             else if (finalStatusVal.toLowerCase().includes('reject') || finalStatusVal.toLowerCase().includes('fail')) finalStatus = 'Rejected';
@@ -208,7 +236,10 @@ export const fetchExitInterviewData = (): Promise<ExitInterview[]> => {
               lastDate: row['Last Date'] || row['ထွက်သည့်ရက်'] || rawDate,
               reason: row['Reason for Leaving'] || row.Reason || row['ထွက်ရသည့်အကြောင်းရင်း'] || 'Unknown',
               requestReason: row['Request Reason'] || row['Request Reaso'] || row['အကြောင်းပြချက်'] || 'Unknown',
+              requestReasonCategory: row['Request Reason - Category'] || '',
               hrReason: row['HR Reason'] || row['HR မှ မှတ်ချက်'] || 'Unknown',
+              hodReason: row['HODs Reason'] || row['HOD Reason'] || '',
+              exitInterviewDate: row['Exit Interview Date'] || '',
               feedback: row.Feedback || row.Comments || row['အကြံပြုချက်'] || '',
               month: month,
             };
@@ -326,10 +357,10 @@ export const fetchJobNetData = (): Promise<JobNetData[]> => {
             time: row[8] || '',
             interviewScore: parseNumber(row[9]),
             secondInterviewDate: row[11] || '',
-            remark: row[16] || '',
-            joinedDate: row[15] || '',
-            offer: row[14] || '',
-            မှတ်ချက်: row[13] || '',
+            remark: row[17] || '',
+            joinedDate: row[16] || '',
+            offer: row[15] || '',
+            မှတ်ချက်: row[14] || '',
           }));
 
         console.log(`Fetched ${jobNetData.length} records from Google Sheet`);
@@ -337,9 +368,8 @@ export const fetchJobNetData = (): Promise<JobNetData[]> => {
         resolve(jobNetData);
       },
       error: (error) => {
-        console.warn('Failed to fetch JobNet data from Google Sheets, using mock data:', error);
-        // Fall back to mock data when Google Sheets fails
-        resolve(mockJobNetData);
+        console.warn('Failed to fetch JobNet data from Google Sheets:', error);
+        resolve([]);
       }
     });
   });
@@ -386,6 +416,168 @@ export const fetchEmployeeData = (): Promise<EmployeeRecord[]> => {
       error: (error) => {
         reject(error);
       }
+    });
+  });
+};
+
+export const fetchVacantListData = (): Promise<VacantListRow[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(VACANT_LIST_CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = (results.data as any[])
+          .filter(row => row['Department / Section'] || row['Sanctioned Strength'] || row['Active Headcount'])
+          .map((row, index) => {
+            const department = (row['Department / Section'] || '').toString().trim();
+            const sanctionedStrength = parseNumber(row['Sanctioned Strength']);
+            const activeHeadcount = parseNumber(row['Active Headcount']);
+            const shortageRaw = parseNumber(row['Surplus /\n Shortage'] ?? row['Surplus / Shortage']);
+            const shortage = shortageRaw < 0 ? Math.abs(shortageRaw) : 0;
+            return {
+              id: `vacant-list-${index + 1}`,
+              department,
+              sanctionedStrength,
+              activeHeadcount,
+              shortage,
+              remarks: row.Remarks || '',
+            };
+          })
+          .filter(row => row.department);
+
+        resolve(rows);
+      },
+      error: (error) => reject(error),
+    });
+  });
+};
+
+export const fetchVacantPositionReadinessData = (): Promise<VacantPositionReadinessRow[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(VACANT_READINESS_CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const headers = (results.meta.fields || []).map(h => (h || '').toString().trim());
+        const readinessHeader = headers.find(h => /readiness|%|percent/i.test(h));
+        const rows = (results.data as any[])
+          .map((row, index) => {
+            const department = (row.Department || row['Department / Section'] || '').toString().trim();
+            const position = (row.Position || row['Vacant Position'] || '').toString().trim();
+            const employeeName = (row['Employee Name'] || row.Name || '').toString().trim();
+            const readinessPercent = readinessHeader ? parseReadinessPercent(row[readinessHeader]) : undefined;
+            const isVacantByName = !employeeName || /vacant|vancant|open/i.test(employeeName);
+            const isVacantByPosition = /vacant|vancant|open/i.test(position);
+
+            return {
+              id: `vacant-ready-${index + 1}`,
+              employeeName,
+              department,
+              position,
+              readinessPercent,
+              isVacant: isVacantByName || isVacantByPosition,
+            };
+          })
+          .filter(row => row.department && row.position);
+
+        resolve(rows);
+      },
+      error: (error) => reject(error),
+    });
+  });
+};
+
+export const fetchSuccessionReadinessLinks = (): Promise<SuccessionReadinessLink[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(VACANT_READINESS_CSV_URL, {
+      download: true,
+      header: false,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as string[][];
+        if (rows.length < 2) {
+          resolve([]);
+          return;
+        }
+
+        const headers = rows[0].map((header) => String(header || '').trim());
+        const vacantColumns = headers
+          .map((label, index) => ({ label, index }))
+          .filter((column) => column.index >= 9 && column.label);
+
+        const links: SuccessionReadinessLink[] = [];
+        for (const row of rows.slice(1)) {
+          const employeeName = (row[2] || '').toString().trim();
+          const employeePosition = (row[3] || '').toString().trim();
+          const employeeDepartment = (row[4] || '').toString().trim();
+          if (!employeeName) continue;
+
+          for (const column of vacantColumns) {
+            const readinessPercent = parseReadinessPercent(row[column.index]);
+            if (readinessPercent === undefined) continue;
+
+            links.push({
+              id: `ready-link-${links.length + 1}`,
+              employeeName,
+              employeeDepartment,
+              employeePosition,
+              vacantPosition: column.label,
+              readinessPercent,
+            });
+          }
+        }
+
+        resolve(links);
+      },
+      error: (error) => reject(error),
+    });
+  });
+};
+
+export const fetchAttendanceData = (): Promise<AttendanceRecord[]> => {
+  return new Promise((resolve, reject) => {
+    Papa.parse(ATTENDANCE_CSV_URL, {
+      download: true,
+      header: false,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as string[][];
+        if (rows.length < 2) {
+          resolve([]);
+          return;
+        }
+
+        const headers = rows[0].map((header) => String(header || '').trim());
+        let attendanceIdx = findHeaderIndex(headers, ['attendance %', 'attendance rate', 'attendance']);
+        if (attendanceIdx < 0) {
+          attendanceIdx = headers.findIndex(
+            (header, index) => index >= 9 && /attendance|attendance %|attendance rate|%/i.test(header),
+          );
+        }
+
+        const records: AttendanceRecord[] = [];
+        for (const row of rows.slice(1)) {
+          const name = (row[2] || '').toString().trim();
+          const position = (row[3] || '').toString().trim();
+          const department = (row[4] || '').toString().trim();
+          if (!name || !department) continue;
+
+          records.push({
+            id: `att-${records.length + 1}`,
+            name,
+            position,
+            department,
+            shopLocation: (row[6] || '').toString().trim() || undefined,
+            division: (row[7] || '').toString().trim() || undefined,
+            attendancePercent: attendanceIdx >= 0 ? parseReadinessPercent(row[attendanceIdx]) : undefined,
+          });
+        }
+
+        resolve(records);
+      },
+      error: (error) => reject(error),
     });
   });
 };

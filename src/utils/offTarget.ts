@@ -4,6 +4,7 @@ import {
   CAREER_GROWTH_THRESHOLD,
 } from './exitReasons';
 import { formatGap } from './metricGap';
+import { SCORE_THRESHOLDS } from './scoreThresholds';
 
 export interface OffTargetRow {
   id: string;
@@ -54,24 +55,24 @@ export function getDeptOffTargetRows(dept: {
       gap: formatGap(dept.overallScore, 2.5, true, ' pts', 1),
     });
   }
-  if (dept.turnoverRate > 10) {
+  if (dept.turnoverRate > SCORE_THRESHOLDS.turnover.warning) {
     rows.push({
       id: `${dept.department}-turnover`,
       entity: dept.department,
       metric: 'Turnover',
       now: `${dept.turnoverRate.toFixed(1)}%`,
-      target: 'Max 10%',
-      gap: formatGap(dept.turnoverRate, 10, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.turnover.warning}%`,
+      gap: formatGap(dept.turnoverRate, SCORE_THRESHOLDS.turnover.warning, false, '%'),
     });
   }
-  if (dept.vacancyRate > 5) {
+  if (dept.vacancyRate > SCORE_THRESHOLDS.vacancyRate.good) {
     rows.push({
       id: `${dept.department}-vacancy`,
       entity: dept.department,
       metric: 'Vacancy Rate',
       now: `${dept.vacancyRate.toFixed(1)}%`,
-      target: 'Max 5%',
-      gap: formatGap(dept.vacancyRate, 5, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.vacancyRate.good}%`,
+      gap: formatGap(dept.vacancyRate, SCORE_THRESHOLDS.vacancyRate.good, false, '%'),
     });
   }
   return rows;
@@ -82,7 +83,7 @@ export function getBranchOffTargetRows(branch: {
   score: string;
   turnoverRate: number;
   vacancyRate: number;
-  attendance: number;
+  attendance: number | null;
 }): OffTargetRow[] {
   const rows: OffTargetRow[] = [];
   if (branch.score === 'C' || branch.score === 'D') {
@@ -95,34 +96,34 @@ export function getBranchOffTargetRows(branch: {
       gap: branch.score === 'D' ? 'Critical grade' : 'At risk grade',
     });
   }
-  if (branch.turnoverRate > 10) {
+  if (branch.turnoverRate > SCORE_THRESHOLDS.turnover.warning) {
     rows.push({
       id: `${branch.branch}-turnover`,
       entity: branch.branch,
       metric: 'Turnover',
       now: `${branch.turnoverRate.toFixed(1)}%`,
-      target: 'Max 10%',
-      gap: formatGap(branch.turnoverRate, 10, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.turnover.warning}%`,
+      gap: formatGap(branch.turnoverRate, SCORE_THRESHOLDS.turnover.warning, false, '%'),
     });
   }
-  if (branch.vacancyRate > 5) {
+  if (branch.vacancyRate > SCORE_THRESHOLDS.vacancyRate.good) {
     rows.push({
       id: `${branch.branch}-vacancy`,
       entity: branch.branch,
       metric: 'Vacancy Rate',
       now: `${branch.vacancyRate.toFixed(1)}%`,
-      target: 'Max 5%',
-      gap: formatGap(branch.vacancyRate, 5, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.vacancyRate.good}%`,
+      gap: formatGap(branch.vacancyRate, SCORE_THRESHOLDS.vacancyRate.good, false, '%'),
     });
   }
-  if (branch.attendance < 90) {
+  if (branch.attendance !== null && branch.attendance < SCORE_THRESHOLDS.attendance.good) {
     rows.push({
       id: `${branch.branch}-attendance`,
       entity: branch.branch,
       metric: 'Attendance',
       now: `${branch.attendance.toFixed(1)}%`,
-      target: 'Min 90%',
-      gap: formatGap(branch.attendance, 90, true, '%'),
+      target: `Min ${SCORE_THRESHOLDS.attendance.good}%`,
+      gap: formatGap(branch.attendance, SCORE_THRESHOLDS.attendance.good, true, '%'),
     });
   }
   return rows;
@@ -146,24 +147,24 @@ export function getManagerOffTargetRows(manager: {
       gap: formatGap(manager.overallScore, 2.5, true, ' pts', 1),
     });
   }
-  if (manager.turnoverRate > 10) {
+  if (manager.turnoverRate > SCORE_THRESHOLDS.turnover.warning) {
     rows.push({
       id: `${manager.department}-turnover`,
       entity: manager.department,
       metric: 'Turnover',
       now: `${manager.turnoverRate.toFixed(1)}%`,
-      target: 'Max 10%',
-      gap: formatGap(manager.turnoverRate, 10, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.turnover.warning}%`,
+      gap: formatGap(manager.turnoverRate, SCORE_THRESHOLDS.turnover.warning, false, '%'),
     });
   }
-  if (manager.vacancyRate > 5) {
+  if (manager.vacancyRate > SCORE_THRESHOLDS.vacancyRate.good) {
     rows.push({
       id: `${manager.department}-vacancy`,
       entity: manager.department,
       metric: 'Vacancy Rate',
       now: `${manager.vacancyRate.toFixed(1)}%`,
-      target: 'Max 5%',
-      gap: formatGap(manager.vacancyRate, 5, false, '%'),
+      target: `Max ${SCORE_THRESHOLDS.vacancyRate.good}%`,
+      gap: formatGap(manager.vacancyRate, SCORE_THRESHOLDS.vacancyRate.good, false, '%'),
     });
   }
   return rows;
@@ -224,14 +225,14 @@ export function getSuccessionOffTargetRows(row: {
       gap: 'None identified',
     });
   }
-  if (!row.isVacant && row.readiness < 80) {
+  if (!row.isVacant && row.readiness < SCORE_THRESHOLDS.successionReadiness.target) {
     rows.push({
       id: `${row.id}-readiness`,
       entity: row.position,
       metric: 'Readiness',
       now: `${row.readiness}%`,
-      target: 'Min 80%',
-      gap: formatGap(row.readiness, 80, true, '%', 0),
+      target: `Min ${SCORE_THRESHOLDS.successionReadiness.target}%`,
+      gap: formatGap(row.readiness, SCORE_THRESHOLDS.successionReadiness.target, true, '%', 0),
     });
   }
   return rows;

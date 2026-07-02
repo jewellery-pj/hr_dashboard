@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const SPREADSHEET_ID = "13LQw9Xl8lc7hbCh0ZpScvQMrPjSZPpmVjPWjpy5ASmE";
+
 // Initialize SQLite database
 const dbPath = path.join(__dirname, 'hr_dashboard.db');
 const db = new Database(dbPath);
@@ -53,6 +55,33 @@ async function startServer() {
       success: true, 
       user: { id: user.id, username: user.username } 
     });
+  });
+
+  // Proxy Google Sheets CSV (avoids browser CORS on gviz/sheet-name URLs)
+  app.get('/api/sheet-csv', async (req, res) => {
+    const sheet = typeof req.query.sheet === 'string' ? req.query.sheet : '';
+    const gid = typeof req.query.gid === 'string' ? req.query.gid : '';
+
+    if (!sheet && !gid) {
+      return res.status(400).json({ error: 'sheet or gid query parameter required' });
+    }
+
+    const url = gid
+      ? `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`
+      : `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `Google Sheets returned ${response.status}` });
+      }
+      const csv = await response.text();
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.send(csv);
+    } catch (error) {
+      console.error('Sheet proxy error:', error);
+      res.status(502).json({ error: 'Failed to fetch sheet data' });
+    }
   });
 
   // Change password endpoint

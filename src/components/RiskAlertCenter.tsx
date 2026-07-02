@@ -16,12 +16,14 @@ import {
   Building2,
   Crown,
 } from 'lucide-react';
-import { Candidate, Resignation, Manpower } from '../data/mockData';
+import { Candidate, Resignation, Manpower, VacantListRow } from '../data/mockData';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
 
 interface RiskAlertCenterProps {
   candidates: Candidate[];
   resignations: Resignation[];
   manpower: Manpower[];
+  vacantList: VacantListRow[];
 }
 
 type Severity = 'critical' | 'high' | 'moderate';
@@ -75,9 +77,33 @@ function isCriticalPosition(position: string): boolean {
   return keywords.some(k => position.toLowerCase().includes(k));
 }
 
-export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, resignations, manpower }) => {
+export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, resignations, manpower, vacantList }) => {
   const alerts = useMemo<RiskAlert[]>(() => {
     const result: RiskAlert[] = [];
+
+    if (vacantList.length > 0) {
+      for (const row of vacantList) {
+        if (row.shortage < SCORE_THRESHOLDS.manpowerShortage.critical) continue;
+        const severity: Severity = row.shortage >= SCORE_THRESHOLDS.manpowerShortage.severe
+          ? 'critical'
+          : row.shortage >= SCORE_THRESHOLDS.manpowerShortage.high
+          ? 'high'
+          : 'moderate';
+        result.push({
+          id: `ALT-VAC-LIST-${row.department}`,
+          icon: Factory,
+          message: `${row.department} Vacancy — ${row.shortage} Posts`,
+          department: row.department,
+          alertType: 'staff-shortage',
+          severity,
+          responsibleManager: `${row.department} Head`,
+          dueDate: severity === 'critical' ? '7 days' : '14 days',
+          recoveryStatus: getRecoveryStatus(row.shortage * 2),
+          gapDetail: `${row.shortage} short · ${row.activeHeadcount}/${row.sanctionedStrength} filled`,
+          escalateToChairman: false,
+        });
+      }
+    }
 
     const deptVacancy = manpower.reduce((acc, m) => {
       const dept = m.department;
@@ -89,10 +115,11 @@ export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, re
       return acc;
     }, {} as Record<string, { total: number; vacant: number; actual: number }>);
 
-    // 1. Department vacancy / staff shortage
+    // 1. Department vacancy / staff shortage (manpower budget fallback)
+    if (vacantList.length === 0) {
     for (const [dept, data] of Object.entries(deptVacancy) as [string, { total: number; vacant: number; actual: number }][]) {
-      if (data.vacant >= 5) {
-        const severity: Severity = data.vacant >= 15 ? 'critical' : data.vacant >= 8 ? 'high' : 'moderate';
+      if (data.vacant >= SCORE_THRESHOLDS.manpowerShortage.critical) {
+        const severity: Severity = data.vacant >= SCORE_THRESHOLDS.manpowerShortage.severe ? 'critical' : data.vacant >= SCORE_THRESHOLDS.manpowerShortage.high ? 'high' : 'moderate';
         result.push({
           id: `ALT-VAC-${dept}`,
           icon: Factory,
@@ -107,6 +134,7 @@ export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, re
           escalateToChairman: false,
         });
       }
+    }
     }
 
     // 2. Department turnover
@@ -123,8 +151,8 @@ export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, re
     for (const [dept, resCount] of Object.entries(deptResignations) as [string, number][]) {
       const staff = deptStaffCount[dept] || 0;
       const turnoverRate = staff > 0 ? (resCount / staff) * 100 : 0;
-      if (turnoverRate >= 15) {
-        const severity: Severity = turnoverRate >= 25 ? 'critical' : 'high';
+      if (turnoverRate >= SCORE_THRESHOLDS.turnover.critical) {
+        const severity: Severity = turnoverRate >= SCORE_THRESHOLDS.turnover.severe ? 'critical' : 'high';
         result.push({
           id: `ALT-TUR-${dept}`,
           icon: TrendingUp,
@@ -225,7 +253,7 @@ export const RiskAlertCenter: React.FC<RiskAlertCenterProps> = ({ candidates, re
       if (a.escalateToChairman !== b.escalateToChairman) return a.escalateToChairman ? -1 : 1;
       return severityOrder[a.severity] - severityOrder[b.severity];
     });
-  }, [candidates, resignations, manpower]);
+  }, [candidates, resignations, manpower, vacantList]);
 
   const criticalCount = alerts.filter(a => a.severity === 'critical').length;
   const highCount = alerts.filter(a => a.severity === 'high').length;

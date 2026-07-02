@@ -43,7 +43,10 @@ export interface ExitInterview {
   lastDate: string;
   reason: string;
   requestReason: string;
+  requestReasonCategory?: string;
   hrReason: string;
+  hodReason?: string;
+  exitInterviewDate?: string;
   feedback?: string;
   month: string;
 }
@@ -85,6 +88,43 @@ export interface JobNetData {
   joinedDate: string;
   offer: string;
   မှတ်ချက်: string;
+}
+
+export interface VacantListRow {
+  id: string;
+  department: string;
+  sanctionedStrength: number;
+  activeHeadcount: number;
+  shortage: number;
+  remarks?: string;
+}
+
+export interface VacantPositionReadinessRow {
+  id: string;
+  employeeName?: string;
+  department: string;
+  position: string;
+  readinessPercent?: number;
+  isVacant: boolean;
+}
+
+export interface SuccessionReadinessLink {
+  id: string;
+  employeeName: string;
+  employeeDepartment: string;
+  employeePosition: string;
+  vacantPosition: string;
+  readinessPercent: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  name: string;
+  department: string;
+  position: string;
+  shopLocation?: string;
+  division?: string;
+  attendancePercent?: number;
 }
 
 const positions = [

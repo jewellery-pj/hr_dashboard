@@ -11,13 +11,17 @@ import {
   Bell,
   Users,
 } from 'lucide-react';
-import { EmployeeRecord, Manpower } from '../data/mockData';
+import { EmployeeRecord, Manpower, VacantListRow, VacantPositionReadinessRow, SuccessionReadinessLink } from '../data/mockData';
 import { flattenOffTarget, getSuccessionOffTargetRows } from '../utils/offTarget';
 import { OffTargetPanel } from './OffTargetPanel';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
 
 interface TalentSuccessionProps {
   employees: EmployeeRecord[];
   manpower: Manpower[];
+  vacantList: VacantListRow[];
+  vacantReadiness: VacantPositionReadinessRow[];
+  successionReadinessLinks: SuccessionReadinessLink[];
 }
 
 type RiskType = 'no-successor' | 'low-readiness' | 'vacant' | 'none';
@@ -77,13 +81,38 @@ function getRiskType(
 ): { riskType: RiskType; chairmanReview: boolean } {
   if (isVacant) return { riskType: 'vacant', chairmanReview: true };
   if (!hasSuccessor) return { riskType: 'no-successor', chairmanReview: false };
-  if (readiness < 80) return { riskType: 'low-readiness', chairmanReview: false };
+  if (readiness < SCORE_THRESHOLDS.successionReadiness.target) return { riskType: 'low-readiness', chairmanReview: false };
   return { riskType: 'none', chairmanReview: false };
 }
 
-export const TalentSuccession: React.FC<TalentSuccessionProps> = ({ employees, manpower }) => {
+function normalizePositionKey(position: string): string {
+  return position.trim().toLowerCase();
+}
+
+export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
+  employees,
+  manpower,
+  vacantList,
+  vacantReadiness,
+  successionReadinessLinks,
+}) => {
   const successionData = useMemo<SuccessionRow[]>(() => {
-    if (employees.length === 0 && manpower.length === 0) return [];
+    if (employees.length === 0 && manpower.length === 0 && vacantList.length === 0) return [];
+
+    const readinessByKey = new Map<string, number>();
+    for (const row of vacantReadiness) {
+      if (typeof row.readinessPercent !== 'number') continue;
+      readinessByKey.set(`${row.position}||${row.department}`, row.readinessPercent);
+    }
+
+    const bestLinkByPosition = new Map<string, SuccessionReadinessLink>();
+    for (const link of successionReadinessLinks) {
+      const key = `${normalizePositionKey(link.vacantPosition)}||${link.employeeDepartment.trim()}`;
+      const existing = bestLinkByPosition.get(key);
+      if (!existing || link.readinessPercent > existing.readinessPercent) {
+        bestLinkByPosition.set(key, link);
+      }
+    }
 
     const rows: SuccessionRow[] = [];
     const seen = new Set<string>();
@@ -112,13 +141,20 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({ employees, m
       );
       const ranked = sameDept
         .map(e => ({ emp: e, level: getPositionLevel(e.position) }))
-        .filter(c => c.level >= Math.max(1, currentLevel - 1))
+        // Successor should be same level or one level below, not above current role.
+        .filter(c => c.level >= Math.max(1, currentLevel - 1) && c.level <= currentLevel)
         .sort((a, b) => b.level - a.level);
 
-      const successor = ranked[0]?.emp || null;
-      const readiness = isVacant ? 0 : successor
+      const sheetLink = bestLinkByPosition.get(`${normalizePositionKey(data.position)}||${data.department.trim()}`);
+      const successor = sheetLink
+        ? { name: sheetLink.employeeName, position: sheetLink.employeePosition }
+        : ranked[0]?.emp || null;
+      const calculatedReadiness = isVacant ? 0 : successor
         ? computeReadiness(currentLevel, getPositionLevel(successor.position))
         : 0;
+      const readiness = sheetLink?.readinessPercent
+        ?? readinessByKey.get(key)
+        ?? calculatedReadiness;
 
       const mpRow = manpower.find(m => m.position === data.position && m.department === data.department);
       const { riskType, chairmanReview } = getRiskType(isVacant, !!successor, readiness);
@@ -165,8 +201,27 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({ employees, m
       });
     }
 
+    for (const vacant of vacantList.filter(v => v.shortage > 0)) {
+      const genericKey = `Vacant Critical Role||${vacant.department}`;
+      if (seen.has(genericKey)) continue;
+      rows.push({
+        id: genericKey,
+        position: `Vacant Critical Role (${vacant.shortage})`,
+        department: vacant.department,
+        currentHolder: 'Vacant',
+        successor: null,
+        readiness: 0,
+        isVacant: true,
+        riskType: 'vacant',
+        chairmanReview: true,
+        budgeted: vacant.sanctionedStrength,
+        actual: vacant.activeHeadcount,
+      });
+      seen.add(genericKey);
+    }
+
     return rows.sort((a, b) => a.readiness - b.readiness);
-  }, [employees, manpower]);
+  }, [employees, manpower, vacantReadiness, vacantList, successionReadinessLinks]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -328,7 +383,7 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({ employees, m
                             )}
                           </td>
                           <td className="px-4 py-3.5 text-right">
-                            <span className={`text-sm font-black tabular-nums ${row.readiness >= 80 ? 'text-emerald-600' : row.readiness >= 40 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            <span className={`text-sm font-black tabular-nums ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'text-emerald-600' : row.readiness >= 40 ? 'text-amber-600' : 'text-rose-600'}`}>
                               {row.readiness}%
                             </span>
                           </td>
@@ -367,7 +422,7 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({ employees, m
                           ? `${row.actual ?? 0}/${row.budgeted ?? 0} filled`
                           : !row.successor
                           ? '0 successors'
-                          : `Readiness ${row.readiness}% · target 80%`}
+                          : `Readiness ${row.readiness}% · target ${SCORE_THRESHOLDS.successionReadiness.target}%`}
                       </p>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-rose-100 text-rose-700 border border-rose-200">

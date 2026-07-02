@@ -14,15 +14,19 @@ import {
   Minus,
   ArrowRight,
 } from 'lucide-react';
-import { Candidate, EmployeeRecord, Resignation, Manpower } from '../data/mockData';
+import { Candidate, EmployeeRecord, Resignation, Manpower, VacantListRow, AttendanceRecord } from '../data/mockData';
 import { flattenOffTarget, getBranchOffTargetRows } from '../utils/offTarget';
 import { OffTargetPanel } from './OffTargetPanel';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
+import { averageAttendance } from '../utils/attendance';
 
 interface BranchScorecardProps {
   resignations: Resignation[];
   manpower: Manpower[];
   employees: EmployeeRecord[];
   candidates: Candidate[];
+  vacantList: VacantListRow[];
+  attendanceRecords: AttendanceRecord[];
 }
 
 type Score = 'A' | 'B' | 'C' | 'D';
@@ -37,7 +41,7 @@ interface BranchData {
   vacancyRate: number;
   turnover: number;
   turnoverRate: number;
-  attendance: number;
+  attendance: number | null;
   attendanceIsProxy: boolean;
   score: Score;
   trend: Trend;
@@ -60,23 +64,26 @@ function normalizeShopName(raw: string): string {
 }
 
 function vacancyToScore(vacancyRate: number): Score {
-  if (vacancyRate <= 3) return 'A';
-  if (vacancyRate <= 7) return 'B';
-  if (vacancyRate <= 12) return 'C';
+  const t = SCORE_THRESHOLDS.vacancyRate;
+  if (vacancyRate <= t.good) return 'A';
+  if (vacancyRate <= t.warning) return 'B';
+  if (vacancyRate <= t.critical) return 'C';
   return 'D';
 }
 
 function turnoverToScore(turnoverRate: number): Score {
-  if (turnoverRate < 5) return 'A';
-  if (turnoverRate < 10) return 'B';
-  if (turnoverRate < 15) return 'C';
+  const t = SCORE_THRESHOLDS.turnover;
+  if (turnoverRate < t.good) return 'A';
+  if (turnoverRate < t.warning) return 'B';
+  if (turnoverRate < t.critical) return 'C';
   return 'D';
 }
 
 function attendanceToScore(attendanceRate: number): Score {
-  if (attendanceRate >= 95) return 'A';
-  if (attendanceRate >= 90) return 'B';
-  if (attendanceRate >= 85) return 'C';
+  const t = SCORE_THRESHOLDS.attendance;
+  if (attendanceRate >= t.excellent) return 'A';
+  if (attendanceRate >= t.good) return 'B';
+  if (attendanceRate >= t.warning) return 'C';
   return 'D';
 }
 
@@ -116,6 +123,8 @@ export const BranchScorecard: React.FC<BranchScorecardProps> = ({
   manpower,
   employees,
   candidates,
+  vacantList,
+  attendanceRecords,
 }) => {
   const branches = useMemo<BranchData[]>(() => {
     const employeeByName = new Map<string, EmployeeRecord>();
@@ -230,30 +239,42 @@ export const BranchScorecard: React.FC<BranchScorecardProps> = ({
           vacancy = Math.max(0, data.budgeted - data.staff);
           vacancyRate = (vacancy / data.budgeted) * 100;
         } else {
-          vacancy = pipelineByShop.get(branch) || 0;
-          vacancyRate = data.staff > 0 ? (vacancy / data.staff) * 100 : 0;
+          const deptShortage = vacantList
+            .filter((row) => data.departments.has(row.department) && row.shortage > 0)
+            .reduce((sum, row) => sum + row.shortage, 0);
+
+          if (deptShortage > 0) {
+            vacancy = deptShortage;
+            vacancyRate = data.staff > 0 ? (vacancy / data.staff) * 100 : 0;
+          } else {
+            vacancy = pipelineByShop.get(branch) || 0;
+            vacancyRate = data.staff > 0 ? (vacancy / data.staff) * 100 : 0;
+          }
         }
 
         const turnover = data.resignations.length;
         const turnoverRate = data.staff > 0 ? (turnover / data.staff) * 100 : 0;
         const priorTurnoverRate = data.staff > 0 ? (data.priorResignations.length / data.staff) * 100 : 0;
 
-        const attendanceIsProxy = true;
-        const attendance = Math.round(
-          Math.max(80, Math.min(99, 100 - turnoverRate * 1.1 - vacancyRate * 0.45))
+        const attendanceFromSheet = averageAttendance(
+          attendanceRecords,
+          (record) => normalizeShopName(record.shopLocation || record.division || '') === branch,
         );
+        const attendanceIsProxy = false;
+        const attendance = attendanceFromSheet;
 
         const vScore = vacancyToScore(vacancyRate);
         const tScore = turnoverToScore(turnoverRate);
-        const aScore = attendanceToScore(attendance);
-        const overall = scoreToValue(tScore) * 0.4 + scoreToValue(vScore) * 0.3 + scoreToValue(aScore) * 0.3;
+        const aScore = attendance !== null ? attendanceToScore(attendance) : null;
+        const overall = aScore !== null
+          ? scoreToValue(tScore) * 0.4 + scoreToValue(vScore) * 0.3 + scoreToValue(aScore) * 0.3
+          : scoreToValue(tScore) * 0.55 + scoreToValue(vScore) * 0.45;
         const score = valueToScore(overall);
         const trend = computeTrend(turnoverRate, priorTurnoverRate);
 
         const hasTurnoverIssue = tScore === 'C' || tScore === 'D';
         const hasAttendanceIssue = aScore === 'C' || aScore === 'D';
         const needsHrbpAssessment = hasTurnoverIssue && hasAttendanceIssue;
-
         return {
           branch,
           rawLocation: data.rawLocation,
@@ -273,7 +294,7 @@ export const BranchScorecard: React.FC<BranchScorecardProps> = ({
       })
       .filter((b): b is BranchData => b !== null)
       .sort((a, b) => scoreToValue(a.score) - scoreToValue(b.score));
-  }, [resignations, manpower, employees, candidates]);
+  }, [resignations, manpower, employees, candidates, vacantList, attendanceRecords]);
 
   const [expandedBranch, setExpandedBranch] = useState<string | null>(null);
 
@@ -480,8 +501,8 @@ export const BranchScorecard: React.FC<BranchScorecardProps> = ({
                           <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${b.turnoverRate >= 15 ? 'text-rose-600' : b.turnoverRate >= 10 ? 'text-amber-600' : 'text-slate-700'}`}>
                             {b.turnoverRate.toFixed(0)}%
                           </td>
-                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${b.attendance < 90 ? 'text-rose-600' : b.attendance < 95 ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {b.attendance}%
+                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${b.attendance === null ? 'text-slate-400' : b.attendance < SCORE_THRESHOLDS.attendance.good ? 'text-rose-600' : b.attendance < SCORE_THRESHOLDS.attendance.excellent ? 'text-amber-600' : 'text-slate-700'}`}>
+                            {b.attendance === null ? '—' : `${b.attendance}%`}
                           </td>
                           <td className="px-4 py-3.5">
                             <div className="flex justify-center">

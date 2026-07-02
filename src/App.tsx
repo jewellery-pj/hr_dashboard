@@ -13,7 +13,7 @@ import {
   Calculator,
   Crown
 } from 'lucide-react';
-import { Candidate, mockCandidates, Resignation, mockResignations, ExitInterview, mockExitInterviews, Manpower, mockManpower, JobNetData, mockJobNetData, EmployeeRecord } from './data/mockData';
+import { Candidate, Resignation, ExitInterview, Manpower, JobNetData, EmployeeRecord, VacantListRow, VacantPositionReadinessRow, AttendanceRecord, SuccessionReadinessLink } from './data/mockData';
 import { RecruitmentDashboard } from './components/RecruitmentDashboard';
 import { ResignationDashboard } from './components/ResignationDashboard';
 import { ExitInterviewDashboard } from './components/ExitInterviewDashboard';
@@ -28,7 +28,19 @@ import { ManagerScorecard } from './components/ManagerScorecard';
 import { ManpowerPlanning } from './components/ManpowerPlanning';
 import { TalentSuccession } from './components/TalentSuccession';
 import { ExitAnalytics } from './components/ExitAnalytics';
-import { fetchExcelData, fetchResignationData, fetchExitInterviewData, fetchManpowerData, fetchJobNetData, fetchEmployeeData } from './services/excelService';
+import {
+  fetchExcelData,
+  fetchResignationData,
+  fetchExitInterviewData,
+  fetchManpowerData,
+  fetchJobNetData,
+  fetchEmployeeData,
+  fetchVacantListData,
+  fetchVacantPositionReadinessData,
+  fetchSuccessionReadinessLinks,
+  fetchAttendanceData,
+} from './services/excelService';
+import { enrichManpowerWithVacantList } from './utils/manpowerEnrichment';
 import { extractMonthFromDate } from './utils/dateUtils';
 import Login from './components/Login';
 import ChangePassword from './components/ChangePassword';
@@ -44,6 +56,10 @@ export default function App() {
   const [manpower, setManpower] = useState<Manpower[]>([]);
   const [jobNetData, setJobNetData] = useState<JobNetData[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [vacantList, setVacantList] = useState<VacantListRow[]>([]);
+  const [vacantReadiness, setVacantReadiness] = useState<VacantPositionReadinessRow[]>([]);
+  const [successionReadinessLinks, setSuccessionReadinessLinks] = useState<SuccessionReadinessLink[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
@@ -56,37 +72,70 @@ export default function App() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [excelData, resData, exitData, mpData, jnData, empData] = await Promise.all([
+        const [
+          excelData,
+          resData,
+          exitData,
+          mpData,
+          jnData,
+          empData,
+          vacantListResult,
+          vacantReadinessResult,
+          readinessLinksResult,
+          attendanceResult,
+        ] = await Promise.allSettled([
           fetchExcelData(),
           fetchResignationData(),
           fetchExitInterviewData(),
           fetchManpowerData(),
           fetchJobNetData(),
-          fetchEmployeeData()
+          fetchEmployeeData(),
+          fetchVacantListData(),
+          fetchVacantPositionReadinessData(),
+          fetchSuccessionReadinessLinks(),
+          fetchAttendanceData(),
         ]);
 
-        if (excelData && excelData.length > 0) {
-          setCandidates(excelData);
+        const vacantListData = vacantListResult.status === 'fulfilled' ? vacantListResult.value : [];
+        const vacantReadinessData = vacantReadinessResult.status === 'fulfilled' ? vacantReadinessResult.value : [];
+        const readinessLinksData = readinessLinksResult.status === 'fulfilled' ? readinessLinksResult.value : [];
+        const attendanceData = attendanceResult.status === 'fulfilled' ? attendanceResult.value : [];
+
+        if (vacantListResult.status === 'rejected') {
+          console.warn('Vacant List sheet failed to load:', vacantListResult.reason);
         }
-        if (resData && resData.length > 0) {
-          setResignations(resData);
+        if (vacantReadinessResult.status === 'rejected') {
+          console.warn('Vacant Position Readiness sheet failed to load:', vacantReadinessResult.reason);
         }
-        if (exitData && exitData.length > 0) {
-          setExitInterviews(exitData);
+        if (readinessLinksResult.status === 'rejected') {
+          console.warn('Succession readiness links failed to load:', readinessLinksResult.reason);
         }
-        if (mpData && mpData.length > 0) {
-          setManpower(mpData);
+        if (attendanceResult.status === 'rejected') {
+          console.warn('Attendance sheet failed to load:', attendanceResult.reason);
         }
-        if (jnData && jnData.length > 0) {
-          setJobNetData(jnData);
-        } else {
-          // Use mock data directly as fallback
-          console.log('Using mockJobNetData directly');
-          setJobNetData(mockJobNetData);
+
+        if (excelData.status === 'fulfilled' && excelData.value.length > 0) {
+          setCandidates(excelData.value);
         }
-        if (empData && empData.length > 0) {
-          setEmployees(empData);
+        if (resData.status === 'fulfilled' && resData.value.length > 0) {
+          setResignations(resData.value);
         }
+        if (exitData.status === 'fulfilled' && exitData.value.length > 0) {
+          setExitInterviews(exitData.value);
+        }
+        if (mpData.status === 'fulfilled' && mpData.value.length > 0) {
+          setManpower(mpData.value);
+        }
+        if (jnData.status === 'fulfilled' && jnData.value.length > 0) {
+          setJobNetData(jnData.value);
+        }
+        if (empData.status === 'fulfilled' && empData.value.length > 0) {
+          setEmployees(empData.value);
+        }
+        setVacantList(vacantListData || []);
+        setVacantReadiness(vacantReadinessData || []);
+        setSuccessionReadinessLinks(readinessLinksData || []);
+        setAttendanceRecords(attendanceData || []);
       } catch (err) {
         console.error('Failed to fetch Excel data:', err);
         setError('Could not load Excel data. Using sample data instead.');
@@ -134,10 +183,12 @@ export default function App() {
     return exitInterviews.filter(e => e.month === selectedMonth);
   }, [exitInterviews, selectedMonth]);
 
-  const filteredManpower = useMemo(() => {
-    // Employee headcount is a point-in-time snapshot — not filtered by month
-    return manpower;
-  }, [manpower]);
+  const enrichedManpower = useMemo(
+    () => enrichManpowerWithVacantList(manpower, vacantList),
+    [manpower, vacantList],
+  );
+
+  const filteredManpower = useMemo(() => enrichedManpower, [enrichedManpower]);
 
   const filteredJobNetData = useMemo(() => {
     if (selectedMonth === 'All') return jobNetData;
@@ -397,17 +448,17 @@ export default function App() {
             onNavigate={tab => setActiveTab(tab as typeof activeTab)}
           />
         ) : activeTab === 'riskalerts' ? (
-          <RiskAlertCenter candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} />
+          <RiskAlertCenter candidates={filteredCandidates} resignations={filteredResignations} manpower={filteredManpower} vacantList={vacantList} />
         ) : activeTab === 'branch' ? (
-          <BranchScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
+          <BranchScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} vacantList={vacantList} attendanceRecords={attendanceRecords} />
         ) : activeTab === 'dept' ? (
-          <DeptScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
+          <DeptScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} vacantList={vacantList} attendanceRecords={attendanceRecords} />
         ) : activeTab === 'manager' ? (
           <ManagerScorecard resignations={filteredResignations} manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
         ) : activeTab === 'planning' ? (
-          <ManpowerPlanning manpower={filteredManpower} employees={employees} candidates={filteredCandidates} />
+          <ManpowerPlanning manpower={filteredManpower} employees={employees} candidates={filteredCandidates} vacantList={vacantList} />
         ) : activeTab === 'talent' ? (
-          <TalentSuccession employees={employees} manpower={filteredManpower} />
+          <TalentSuccession employees={employees} manpower={filteredManpower} vacantList={vacantList} vacantReadiness={vacantReadiness} successionReadinessLinks={successionReadinessLinks} />
         ) : activeTab === 'exitanalytics' ? (
           <ExitAnalytics exitInterviews={filteredExitInterviews} />
         ) : activeTab === 'overview' ? (

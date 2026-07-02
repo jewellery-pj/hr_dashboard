@@ -14,6 +14,7 @@ import {
 import { Candidate, EmployeeRecord, Resignation, Manpower } from '../data/mockData';
 import { flattenOffTarget, getManagerOffTargetRows } from '../utils/offTarget';
 import { OffTargetPanel } from './OffTargetPanel';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
 
 interface ManagerScorecardProps {
   resignations: Resignation[];
@@ -67,29 +68,33 @@ function isManagerPosition(position: string): boolean {
 }
 
 function turnoverToScore(rate: number): Score {
-  if (rate < 5) return 'A';
-  if (rate < 10) return 'B';
-  if (rate < 15) return 'C';
+  const t = SCORE_THRESHOLDS.turnover;
+  if (rate < t.good) return 'A';
+  if (rate < t.warning) return 'B';
+  if (rate < t.critical) return 'C';
   return 'D';
 }
 
 function vacancyRateToScore(rate: number): Score {
-  if (rate <= 3) return 'A';
-  if (rate <= 7) return 'B';
-  if (rate <= 12) return 'C';
+  const t = SCORE_THRESHOLDS.vacancyRate;
+  if (rate <= t.good) return 'A';
+  if (rate <= t.warning) return 'B';
+  if (rate <= t.critical) return 'C';
   return 'D';
 }
 
 function productivityToScore(turnoverRate: number, vacancyRate: number, hireRatio: number): Score {
+  const turnover = SCORE_THRESHOLDS.turnover;
+  const vacancy = SCORE_THRESHOLDS.vacancyRate;
   let score = 4;
-  if (turnoverRate >= 15) score -= 2;
-  else if (turnoverRate >= 10) score -= 1;
-  else if (turnoverRate >= 5) score -= 0.5;
-  if (vacancyRate >= 12) score -= 1.5;
-  else if (vacancyRate >= 7) score -= 1;
-  else if (vacancyRate >= 4) score -= 0.5;
+  if (turnoverRate >= turnover.critical) score -= 2;
+  else if (turnoverRate >= turnover.warning) score -= 1;
+  else if (turnoverRate >= turnover.good) score -= 0.5;
+  if (vacancyRate >= vacancy.critical) score -= 1.5;
+  else if (vacancyRate >= vacancy.warning) score -= 1;
+  else if (vacancyRate >= vacancy.good) score -= 0.5;
   if (hireRatio >= 0.5) score += 0.25;
-  else if (hireRatio < 0.2 && turnoverRate > 5) score -= 0.5;
+  else if (hireRatio < 0.2 && turnoverRate > turnover.good) score -= 0.5;
   if (score >= 3.5) return 'A';
   if (score >= 2.5) return 'B';
   if (score >= 1.5) return 'C';
@@ -211,7 +216,8 @@ export const ManagerScorecard: React.FC<ManagerScorecardProps> = ({
 
       const isLeadershipRisk =
         overallGrade === 'C' || overallGrade === 'D' ||
-        turnoverRate >= 15 || vacancyRate >= 10;
+        turnoverRate >= SCORE_THRESHOLDS.turnover.critical ||
+        vacancyRate >= SCORE_THRESHOLDS.vacancyRate.warning;
 
       raw.push({
         manager: head.name,

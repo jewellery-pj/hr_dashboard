@@ -11,7 +11,7 @@ import {
   UserCog,
   Briefcase,
 } from 'lucide-react';
-import { Candidate, EmployeeRecord, Manpower } from '../data/mockData';
+import { Candidate, EmployeeRecord, Manpower, VacantListRow } from '../data/mockData';
 import { flattenOffTarget, getManpowerOffTargetRows } from '../utils/offTarget';
 import { OffTargetPanel } from './OffTargetPanel';
 
@@ -19,6 +19,7 @@ interface ManpowerPlanningProps {
   manpower: Manpower[];
   employees: EmployeeRecord[];
   candidates: Candidate[];
+  vacantList: VacantListRow[];
 }
 
 interface DeptGap {
@@ -36,8 +37,37 @@ export const ManpowerPlanning: React.FC<ManpowerPlanningProps> = ({
   manpower,
   employees,
   candidates,
+  vacantList,
 }) => {
   const departments = useMemo<DeptGap[]>(() => {
+    if (vacantList.length > 0) {
+      const pipelineByDept = new Map<string, number>();
+      for (const c of candidates.filter(x => x.finalStatus === 'In Progress')) {
+        pipelineByDept.set(c.department, (pipelineByDept.get(c.department) || 0) + 1);
+      }
+
+      return vacantList
+        .map((row) => {
+          const budget = row.sanctionedStrength;
+          const actual = row.activeHeadcount;
+          const gap = actual - budget;
+          const shortage = row.shortage;
+          const fillRate = budget > 0 ? (actual / budget) * 100 : 100;
+          const inPipeline = pipelineByDept.get(row.department) || 0;
+          return {
+            department: row.department,
+            budget,
+            actual,
+            gap,
+            shortage,
+            fillRate,
+            isCritical: shortage > 5,
+            inPipeline,
+          };
+        })
+        .sort((a, b) => a.gap - b.gap);
+    }
+
     const deptMap = new Map<string, { budget: number; actual: number }>();
 
     for (const emp of employees) {
@@ -84,7 +114,7 @@ export const ManpowerPlanning: React.FC<ManpowerPlanningProps> = ({
       })
       .filter(d => d.budget > 0 || d.actual > 0)
       .sort((a, b) => a.gap - b.gap);
-  }, [manpower, employees, candidates]);
+  }, [manpower, employees, candidates, vacantList]);
 
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
 

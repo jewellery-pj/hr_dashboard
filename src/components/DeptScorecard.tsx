@@ -11,15 +11,19 @@ import {
   ArrowRight,
   TrendingDown,
 } from 'lucide-react';
-import { Candidate, EmployeeRecord, Resignation, Manpower } from '../data/mockData';
+import { Candidate, EmployeeRecord, Resignation, Manpower, VacantListRow, AttendanceRecord } from '../data/mockData';
 import { flattenOffTarget, getDeptOffTargetRows } from '../utils/offTarget';
 import { OffTargetPanel } from './OffTargetPanel';
+import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
+import { averageAttendance } from '../utils/attendance';
 
 interface DeptScorecardProps {
   resignations: Resignation[];
   manpower: Manpower[];
   employees: EmployeeRecord[];
   candidates: Candidate[];
+  vacantList: VacantListRow[];
+  attendanceRecords: AttendanceRecord[];
 }
 
 type Grade = 'A' | 'B' | 'C' | 'D';
@@ -32,12 +36,12 @@ interface DeptData {
   vacancyRate: number;
   turnover: number;
   turnoverRate: number;
-  attendance: number;
+  attendance: number | null;
   productivity: Grade;
   labourCost: Grade;
   turnoverGrade: Grade;
   vacancyGrade: Grade;
-  attendanceGrade: Grade;
+  attendanceGrade: Grade | null;
   overallScore: number;
   overallGrade: Grade;
   needsWorkforceStabilization: boolean;
@@ -59,23 +63,26 @@ const gradeValue: Record<Grade, number> = { A: 4, B: 3, C: 2, D: 1 };
 const valueToGrade = (v: number): Grade => (v >= 3.5 ? 'A' : v >= 2.5 ? 'B' : v >= 1.5 ? 'C' : 'D');
 
 function turnoverToGrade(rate: number): Grade {
-  if (rate < 5) return 'A';
-  if (rate < 10) return 'B';
-  if (rate < 15) return 'C';
+  const t = SCORE_THRESHOLDS.turnover;
+  if (rate < t.good) return 'A';
+  if (rate < t.warning) return 'B';
+  if (rate < t.critical) return 'C';
   return 'D';
 }
 
 function vacancyCountToGrade(count: number): Grade {
-  if (count <= 2) return 'A';
-  if (count <= 5) return 'B';
-  if (count <= 10) return 'C';
+  const t = SCORE_THRESHOLDS.vacancyCount;
+  if (count <= t.good) return 'A';
+  if (count <= t.warning) return 'B';
+  if (count <= t.critical) return 'C';
   return 'D';
 }
 
 function attendanceToGrade(rate: number): Grade {
-  if (rate >= 95) return 'A';
-  if (rate >= 90) return 'B';
-  if (rate >= 85) return 'C';
+  const t = SCORE_THRESHOLDS.attendance;
+  if (rate >= t.excellent) return 'A';
+  if (rate >= t.good) return 'B';
+  if (rate >= t.warning) return 'C';
   return 'D';
 }
 
@@ -84,14 +91,16 @@ function productivityToGrade(
   vacancyRate: number,
   hireRatio: number,
 ): Grade {
+  const turnover = SCORE_THRESHOLDS.turnover;
+  const vacancy = SCORE_THRESHOLDS.vacancyRate;
   let score = 4;
-  if (turnoverRate >= 15) score -= 2;
-  else if (turnoverRate >= 10) score -= 1;
-  else if (turnoverRate >= 5) score -= 0.5;
+  if (turnoverRate >= turnover.critical) score -= 2;
+  else if (turnoverRate >= turnover.warning) score -= 1;
+  else if (turnoverRate >= turnover.good) score -= 0.5;
 
-  if (vacancyRate >= 15) score -= 1.5;
-  else if (vacancyRate >= 8) score -= 1;
-  else if (vacancyRate >= 4) score -= 0.5;
+  if (vacancyRate >= vacancy.severe) score -= 1.5;
+  else if (vacancyRate >= vacancy.warning) score -= 1;
+  else if (vacancyRate >= vacancy.good) score -= 0.5;
 
   if (hireRatio >= 0.6) score += 0.5;
   else if (hireRatio < 0.2 && turnoverRate > 5) score -= 0.5;
@@ -123,8 +132,11 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
   manpower,
   employees,
   candidates,
+  vacantList,
+  attendanceRecords,
 }) => {
   const departments = useMemo<DeptData[]>(() => {
+    const vacantByDept = new Map(vacantList.map((row) => [row.department.trim(), row]));
     const deptMap = new Map<string, {
       headcount: number;
       budgeted: number;
@@ -141,6 +153,17 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
       deptMap.get(dept)!.headcount += 1;
     }
 
+    for (const vacantRow of vacantList) {
+      const dept = vacantRow.department.trim();
+      if (!dept) continue;
+      if (!deptMap.has(dept)) {
+        deptMap.set(dept, { headcount: 0, budgeted: 0, resignations: [], priorResignations: [] });
+      }
+      const entry = deptMap.get(dept)!;
+      entry.budgeted = vacantRow.sanctionedStrength;
+      if (entry.headcount === 0) entry.headcount = vacantRow.activeHeadcount;
+    }
+
     for (const m of manpower) {
       const dept = m.department?.trim() || 'Unknown';
       if (dept === 'Unknown') continue;
@@ -148,7 +171,7 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
         deptMap.set(dept, { headcount: 0, budgeted: 0, resignations: [], priorResignations: [] });
       }
       const entry = deptMap.get(dept)!;
-      entry.budgeted += m.budgeted || 0;
+      if (entry.budgeted === 0) entry.budgeted += m.budgeted || 0;
       if (entry.headcount === 0) entry.headcount += m.actual || 0;
     }
 
@@ -191,8 +214,9 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
         const turnoverRate = data.headcount > 0 ? (turnover / data.headcount) * 100 : 0;
         const priorTurnoverRate = data.headcount > 0 ? (data.priorResignations.length / data.headcount) * 100 : 0;
 
-        const attendance = Math.round(
-          Math.max(80, Math.min(99, 100 - turnoverRate * 1.1 - vacancyRate * 0.4))
+        const attendance = averageAttendance(
+          attendanceRecords,
+          (record) => record.department.trim() === department,
         );
 
         const joined = joinedByDept.get(department) || 0;
@@ -201,16 +225,22 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
 
         const turnoverGrade = turnoverToGrade(turnoverRate);
         const vacancyGrade = vacancyCountToGrade(vacancy);
-        const attendanceGrade = attendanceToGrade(attendance);
+        const attendanceGrade = attendance !== null ? attendanceToGrade(attendance) : null;
         const productivity = productivityToGrade(turnoverRate, vacancyRate, hireRatio);
         const labourCost: Grade = 'B';
 
-        const overallScore =
-          gradeValue[productivity] * SCORE_WEIGHTS.productivity +
-          gradeValue[turnoverGrade] * SCORE_WEIGHTS.turnover +
-          gradeValue[attendanceGrade] * SCORE_WEIGHTS.attendance +
-          gradeValue[vacancyGrade] * SCORE_WEIGHTS.vacancy +
-          gradeValue[labourCost] * SCORE_WEIGHTS.labourCost;
+        const overallScore = attendance !== null && attendanceGrade !== null
+          ? gradeValue[productivity] * SCORE_WEIGHTS.productivity +
+            gradeValue[turnoverGrade] * SCORE_WEIGHTS.turnover +
+            gradeValue[attendanceGrade] * SCORE_WEIGHTS.attendance +
+            gradeValue[vacancyGrade] * SCORE_WEIGHTS.vacancy +
+            gradeValue[labourCost] * SCORE_WEIGHTS.labourCost
+          : (
+            gradeValue[productivity] * (SCORE_WEIGHTS.productivity + SCORE_WEIGHTS.attendance * 0.5) +
+            gradeValue[turnoverGrade] * SCORE_WEIGHTS.turnover +
+            gradeValue[vacancyGrade] * SCORE_WEIGHTS.vacancy +
+            gradeValue[labourCost] * SCORE_WEIGHTS.labourCost
+          );
 
         const overallGrade = valueToGrade(overallScore);
 
@@ -246,7 +276,7 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
 
     const ranked = [...raw].sort((a, b) => a.overallScore - b.overallScore);
     return ranked.map((d, i) => ({ ...d, riskRank: i + 1 }));
-  }, [resignations, manpower, employees, candidates]);
+  }, [resignations, manpower, employees, candidates, vacantList, attendanceRecords]);
 
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
 
@@ -278,13 +308,16 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
           {([
             { label: 'Productivity', grade: d.productivity, weight: '40%' },
             { label: 'Turnover', grade: d.turnoverGrade, weight: '20%' },
-            { label: 'Attendance', grade: d.attendanceGrade, weight: '15%' },
+            { label: 'Attendance', grade: d.attendanceGrade, weight: '15%', value: d.attendance },
             { label: 'Vacancy', grade: d.vacancyGrade, weight: '15%' },
             { label: 'Labour Cost', grade: d.labourCost, weight: '10%' },
-          ] as const).map(({ label, grade, weight }) => (
+          ] as const).map(({ label, grade, weight, ...rest }) => (
             <div key={label} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
               <p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p>
-              <p className="text-lg font-black mt-1">{grade}</p>
+              <p className="text-lg font-black mt-1">{grade ?? '—'}</p>
+              {'value' in rest && rest.value !== null && (
+                <p className="text-[10px] text-slate-500 tabular-nums">{rest.value.toFixed(1)}%</p>
+              )}
               <p className="text-[10px] text-slate-400">{weight}</p>
             </div>
           ))}
@@ -429,10 +462,10 @@ export const DeptScorecard: React.FC<DeptScorecardProps> = ({
                             </div>
                           </td>
                           <td className="px-4 py-3.5 text-right text-sm font-black tabular-nums">{d.headcount}</td>
-                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${d.vacancy > 10 ? 'text-rose-600' : d.vacancy > 5 ? 'text-amber-600' : 'text-slate-700'}`}>
+                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${d.vacancy > SCORE_THRESHOLDS.vacancyCount.critical ? 'text-rose-600' : d.vacancy > SCORE_THRESHOLDS.vacancyCount.warning ? 'text-amber-600' : 'text-slate-700'}`}>
                             {d.vacancy}
                           </td>
-                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${d.turnoverRate >= 15 ? 'text-rose-600' : d.turnoverRate >= 10 ? 'text-amber-600' : 'text-slate-700'}`}>
+                          <td className={`px-4 py-3.5 text-right text-sm font-bold tabular-nums ${d.turnoverRate >= SCORE_THRESHOLDS.turnover.critical ? 'text-rose-600' : d.turnoverRate >= SCORE_THRESHOLDS.turnover.warning ? 'text-amber-600' : 'text-slate-700'}`}>
                             {d.turnoverRate.toFixed(0)}%
                           </td>
                           <td className="px-4 py-3.5 text-center"><GradeBadge grade={d.productivity} compact /></td>
