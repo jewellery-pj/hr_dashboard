@@ -424,29 +424,44 @@ export const fetchVacantListData = (): Promise<VacantListRow[]> => {
   return new Promise((resolve, reject) => {
     Papa.parse(VACANT_LIST_CSV_URL, {
       download: true,
-      header: true,
+      header: false, // Use index-based access due to newlines in headers
       skipEmptyLines: true,
       complete: (results) => {
-        const rows = (results.data as any[])
-          .filter(row => row['Department / Section'] || row['Sanctioned Strength'] || row['Active Headcount'])
-          .map((row, index) => {
-            const department = (row['Department / Section'] || '').toString().trim();
-            const sanctionedStrength = parseNumber(row['Sanctioned Strength']);
-            const activeHeadcount = parseNumber(row['Active Headcount']);
-            const shortageRaw = parseNumber(row['Surplus /\n Shortage'] ?? row['Surplus / Shortage']);
-            const shortage = shortageRaw < 0 ? Math.abs(shortageRaw) : 0;
-            return {
-              id: `vacant-list-${index + 1}`,
-              department,
-              sanctionedStrength,
-              activeHeadcount,
-              shortage,
-              remarks: row.Remarks || '',
-            };
-          })
-          .filter(row => row.department);
+        const data = results.data as any[];
+        if (data.length < 2) {
+          resolve([]);
+          return;
+        }
 
-        resolve(rows);
+        // Skip header row
+        const rows = data.slice(1);
+
+        // Index mapping based on CSV structure:
+        // Col 0: No, Col 1: Department / Section, Col 2: OC, Col 3: Current Manpower, Col 4: Surplus / Shortage, Col 5: Remarks
+        const aggregated = rows.reduce((acc, row) => {
+          const department = (row[1] || '').toString().trim();
+          const oc = parseNumber(row[2]);
+          const currentManpower = parseNumber(row[3]);
+          const surplusShortage = parseNumber(row[4]);
+          const remarks = (row[5] || '').toString().trim();
+
+          if (!department) return acc;
+
+          const shortage = surplusShortage < 0 ? Math.abs(surplusShortage) : 0;
+
+          acc.push({
+            id: `vacant-list-${acc.length + 1}`,
+            department,
+            sanctionedStrength: oc,
+            activeHeadcount: currentManpower,
+            shortage,
+            remarks,
+          });
+
+          return acc;
+        }, [] as VacantListRow[]);
+
+        resolve(aggregated);
       },
       error: (error) => reject(error),
     });

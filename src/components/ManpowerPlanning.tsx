@@ -64,8 +64,7 @@ export const ManpowerPlanning: React.FC<ManpowerPlanningProps> = ({
             isCritical: shortage > 5,
             inPipeline,
           };
-        })
-        .sort((a, b) => a.gap - b.gap);
+        });
     }
 
     const deptMap = new Map<string, { budget: number; actual: number }>();
@@ -112,8 +111,7 @@ export const ManpowerPlanning: React.FC<ManpowerPlanningProps> = ({
           inPipeline,
         };
       })
-      .filter(d => d.budget > 0 || d.actual > 0)
-      .sort((a, b) => a.gap - b.gap);
+      .filter(d => d.budget > 0 || d.actual > 0);
   }, [manpower, employees, candidates, vacantList]);
 
   const [expandedDept, setExpandedDept] = useState<string | null>(null);

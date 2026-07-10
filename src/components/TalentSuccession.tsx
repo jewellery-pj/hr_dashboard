@@ -2,18 +2,10 @@ import React, { useMemo, useState } from 'react';
 import {
   Crown,
   UserX,
-  AlertTriangle,
-  UserCog,
   Siren,
-  ChevronDown,
-  ChevronUp,
-  ArrowRight,
-  Bell,
   Users,
 } from 'lucide-react';
 import { EmployeeRecord, Manpower, VacantListRow, VacantPositionReadinessRow, SuccessionReadinessLink } from '../data/mockData';
-import { flattenOffTarget, getSuccessionOffTargetRows } from '../utils/offTarget';
-import { OffTargetPanel } from './OffTargetPanel';
 import { SCORE_THRESHOLDS } from '../utils/scoreThresholds';
 
 interface TalentSuccessionProps {
@@ -31,7 +23,9 @@ interface SuccessionRow {
   position: string;
   department: string;
   currentHolder: string;
+  currentHolderPosition: string;
   successor: string | null;
+  successorPosition: string | null;
   readiness: number;
   isVacant: boolean;
   riskType: RiskType;
@@ -52,7 +46,7 @@ function getRiskType(
 ): { riskType: RiskType; chairmanReview: boolean } {
   if (isVacant) return { riskType: 'vacant', chairmanReview: true };
   if (!hasSuccessor) return { riskType: 'no-successor', chairmanReview: false };
-  if (readiness < SCORE_THRESHOLDS.successionReadiness.target) return { riskType: 'low-readiness', chairmanReview: false };
+  if (readiness < SCORE_THRESHOLDS.successionReadiness.target) return { riskType: 'low-readiness', chairmanReview: true };
   return { riskType: 'none', chairmanReview: false };
 }
 
@@ -80,7 +74,9 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
         position: `${link.employeeDepartment} — ${link.currentHolderPosition || link.vacantPosition}`,
         department: link.employeeDepartment,
         currentHolder: link.currentHolderName || 'Vacant',
+        currentHolderPosition: link.currentHolderPosition || link.vacantPosition || '',
         successor: hasSuccessor ? link.employeeName : null,
+        successorPosition: hasSuccessor ? (link.employeePosition || null) : null,
         readiness: link.readinessPercent,
         isVacant,
         riskType,
@@ -91,7 +87,26 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
     return rows.sort((a, b) => a.readiness - b.readiness);
   }, [successionReadinessLinks]);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deptFilter, setDeptFilter] = useState<string>('All');
+  const [posFilter, setPosFilter] = useState<string>('All');
+
+  const departments = useMemo(() => {
+    const depts = Array.from(new Set(successionData.map(r => r.department))).sort();
+    return ['All', ...depts];
+  }, [successionData]);
+
+  const positions = useMemo(() => {
+    const pos = Array.from(new Set(successionData.map(r => r.currentHolderPosition).filter(Boolean))).sort();
+    return ['All', ...pos] as string[];
+  }, [successionData]);
+
+  const filteredSuccessionData = useMemo(() => {
+    return successionData.filter(r => {
+      if (deptFilter !== 'All' && r.department !== deptFilter) return false;
+      if (posFilter !== 'All' && r.currentHolderPosition !== posFilter) return false;
+      return true;
+    });
+  }, [successionData, deptFilter, posFilter]);
 
   const coverageRate = successionData.length > 0
     ? (successionData.filter(r => r.successor !== null).length / successionData.length) * 100
@@ -101,34 +116,14 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
     : 0;
 
   const talentRiskAlerts = successionData.filter(r => r.riskType !== 'none');
-  const chairmanReviewItems = successionData.filter(r => r.chairmanReview);
   const noSuccessorItems = successionData.filter(r => r.riskType === 'no-successor');
   const lowReadinessItems = successionData.filter(r => r.riskType === 'low-readiness');
 
-  const headerGradient = chairmanReviewItems.length > 0 || noSuccessorItems.length > 0
+  const headerGradient = noSuccessorItems.length > 0
     ? 'from-rose-900 via-rose-800 to-slate-900'
     : lowReadinessItems.length > 0
     ? 'from-amber-900 via-amber-800 to-slate-900'
     : 'from-amber-800 via-amber-700 to-slate-800';
-
-  const offTargetRows = useMemo(
-    () => flattenOffTarget(successionData.filter(r => r.riskType !== 'none'), getSuccessionOffTargetRows),
-    [successionData],
-  );
-
-  const renderDetail = (row: SuccessionRow) => {
-    return (
-      <div className="space-y-3">
-        <p className="text-sm text-slate-600">
-          Department: <strong>{row.department}</strong> · Readiness: <strong>{row.readiness}%</strong>
-          · Successor: <strong>{row.successor ?? '—'}</strong>
-        </p>
-        <p className="text-xs text-slate-500">
-          Current Holder: <strong>{row.currentHolder}</strong>
-        </p>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -161,7 +156,7 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
           <div className="mt-5 flex items-center gap-3 px-4 py-3 bg-rose-500/25 rounded-xl border border-rose-400/30">
             <Siren className="w-4 h-4 text-rose-200 flex-shrink-0 animate-pulse" />
             <p className="text-sm font-bold text-rose-100">
-              {talentRiskAlerts.length} talent risk(s) — {noSuccessorItems.length} no successor, {chairmanReviewItems.length} vacant
+              {talentRiskAlerts.length} talent risk(s) — {noSuccessorItems.length} no successor, {talentRiskAlerts.filter(r => r.isVacant).length} vacant
             </p>
           </div>
         )}
@@ -177,74 +172,109 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
         <>
           {/* Chairman Table */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80">
-              <h3 className="text-base font-bold text-slate-800">Critical Position Succession Plan</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Click a row for department detail</p>
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Critical Position Succession Plan</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{filteredSuccessionData.length} position{filteredSuccessionData.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={deptFilter}
+                  onChange={e => { setDeptFilter(e.target.value); }}
+                  className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5 pr-7 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
+                >
+                  {departments.map(d => (
+                    <option key={d} value={d}>{d === 'All' ? 'All Departments' : d}</option>
+                  ))}
+                </select>
+                <select
+                  value={posFilter}
+                  onChange={e => { setPosFilter(e.target.value); }}
+                  className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5 pr-7 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
+                >
+                  {positions.map(p => (
+                    <option key={p} value={p}>{p === 'All' ? 'All Positions' : p}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Critical Position</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Current Holder</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Successor</th>
+                  <tr className="border-b-2 border-slate-200 bg-slate-50">
+                    <th className="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-widest">Dept</th>
+                    <th colSpan={2} className="px-4 py-2 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest border-x border-slate-200">
+                      Current Holder
+                    </th>
+                    <th colSpan={2} className="px-4 py-2 text-center text-[11px] font-bold text-slate-400 uppercase tracking-widest border-r border-slate-200">
+                      Successor
+                    </th>
                     <th className="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-widest">Readiness</th>
+                  </tr>
+                  <tr className="border-b border-slate-200 bg-slate-50/60">
+                    <th className="px-4 py-1.5" />
+                    <th className="px-4 py-1.5 text-left text-[10px] font-bold text-slate-400 border-l border-slate-200">Name</th>
+                    <th className="px-4 py-1.5 text-left text-[10px] font-bold text-slate-400 border-r border-slate-200">Position</th>
+                    <th className="px-4 py-1.5 text-left text-[10px] font-bold text-slate-400">Name</th>
+                    <th className="px-4 py-1.5 text-left text-[10px] font-bold text-slate-400 border-r border-slate-200">Position</th>
+                    <th className="px-4 py-1.5" />
                   </tr>
                 </thead>
                 <tbody>
-                  {successionData.map((row) => {
+                  {filteredSuccessionData.map((row) => {
                     const isRisk = row.riskType !== 'none';
-                    const isExpanded = expandedId === row.id;
                     return (
                       <React.Fragment key={row.id}>
                         <tr
-                          className={`border-t border-slate-100 cursor-pointer transition-colors ${isRisk ? 'bg-rose-50/30' : 'hover:bg-slate-50/80'} ${isExpanded ? 'ring-1 ring-inset ring-indigo-200' : ''}`}
-                          onClick={() => setExpandedId(isExpanded ? null : row.id)}
+                          className={`border-t border-slate-100 transition-colors ${isRisk ? 'bg-rose-50/30' : ''}`}
                         >
-                          <td className="px-6 py-3.5">
-                            <div className="flex items-center gap-3">
-                              {isRisk && <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />}
-                              <Crown className={`w-4 h-4 flex-shrink-0 ${isRisk ? 'text-rose-500' : 'text-amber-500'}`} />
-                              <div>
-                                <span className="text-sm font-bold text-slate-800">{row.position}</span>
-                                <p className="text-[10px] text-slate-400">{row.department}</p>
-                              </div>
-                              {isExpanded ? (
-                                <ChevronUp className="w-4 h-4 text-indigo-400 ml-auto" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4 text-slate-300 ml-auto" />
-                              )}
-                            </div>
+                          {/* Department */}
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-bold text-slate-700">{row.department}</span>
                           </td>
-                          <td className="px-4 py-3.5">
+                          {/* Current Holder Name */}
+                          <td className="px-4 py-3 border-l border-slate-100">
                             {row.isVacant ? (
-                              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-rose-600">
-                                <UserX className="w-3.5 h-3.5" /> Vacant
+                              <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600">
+                                <UserX className="w-3 h-3" /> Vacant
                               </span>
                             ) : (
-                              <span className="text-sm font-bold text-slate-800">{row.currentHolder}</span>
+                              <span className="text-sm font-semibold text-slate-800">{row.currentHolder}</span>
                             )}
                           </td>
-                          <td className="px-4 py-3.5">
+                          {/* Current Holder Position */}
+                          <td className="px-4 py-3 border-r border-slate-100">
+                            <span className="text-xs text-slate-500">{row.currentHolderPosition || '—'}</span>
+                          </td>
+                          {/* Successor Name */}
+                          <td className="px-4 py-3">
                             {row.successor ? (
-                              <span className="text-sm font-semibold text-slate-700">{row.successor}</span>
+                              <span className="text-sm font-semibold text-slate-800">{row.successor}</span>
                             ) : (
-                              <span className="text-sm font-bold text-rose-600">None</span>
+                              <span className="text-xs font-bold text-rose-500">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3.5 text-right">
-                            <span className={`text-sm font-black tabular-nums ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'text-emerald-600' : row.readiness >= 40 ? 'text-amber-600' : 'text-rose-600'}`}>
-                              {row.readiness}%
-                            </span>
+                          {/* Successor Position */}
+                          <td className="px-4 py-3 border-r border-slate-100">
+                            <span className="text-xs text-slate-500">{row.successorPosition ?? '—'}</span>
+                          </td>
+                          {/* Readiness */}
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-14 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'bg-emerald-500' : row.readiness >= 50 ? 'bg-amber-400' : 'bg-rose-500'}`}
+                                  style={{ width: `${row.readiness}%` }}
+                                />
+                              </div>
+                              <span className={`text-sm font-black tabular-nums w-9 text-right ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'text-emerald-600' : row.readiness >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                {row.readiness}%
+                              </span>
+                            </div>
                           </td>
                         </tr>
-                        {isExpanded && (
-                          <tr className="bg-slate-50/40">
-                            <td colSpan={4} className="px-6 py-4 border-t border-indigo-100">
-                              {renderDetail(row)}
-                            </td>
-                          </tr>
-                        )}
                       </React.Fragment>
                     );
                   })}
@@ -253,68 +283,89 @@ export const TalentSuccession: React.FC<TalentSuccessionProps> = ({
             </div>
           </div>
 
-          {/* Immediate Talent Risk Alerts */}
-          {talentRiskAlerts.length > 0 && (
-            <div className="bg-white rounded-2xl border-2 border-rose-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-rose-50/80 border-b border-rose-100 flex items-center gap-2">
-                <Bell className="w-4 h-4 text-rose-500" />
-                <h3 className="text-base font-bold text-slate-800">Talent Risk Alerts</h3>
-                <span className="text-xs text-slate-400">{talentRiskAlerts.length} flagged</span>
-              </div>
-              <ul className="divide-y divide-slate-100">
-                {talentRiskAlerts.map((row) => (
-                  <li key={row.id} className="px-6 py-3.5 flex items-center gap-3">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-slate-800">{row.position}</p>
-                      <p className="text-xs text-slate-500">
-                        {row.isVacant
-                          ? `${row.actual ?? 0}/${row.budgeted ?? 0} filled`
-                          : !row.successor
-                          ? '0 successors'
-                          : `Readiness ${row.readiness}% · target ${SCORE_THRESHOLDS.successionReadiness.target}%`}
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
-                      {row.riskType}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Chairman Review Agenda */}
-          {chairmanReviewItems.length > 0 && (
-            <div className="bg-white rounded-2xl border-2 border-amber-200 shadow-sm p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Crown className="w-4 h-4 text-amber-600" />
-                <h3 className="text-base font-bold text-slate-800">Chairman Review Agenda</h3>
-                <span className="text-xs text-slate-400">Vacant critical positions</span>
-              </div>
-              <ul className="space-y-2">
-                {chairmanReviewItems.map(row => (
-                  <li key={row.id} className="flex items-center gap-2 text-sm">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    <span className="font-bold text-slate-800">{row.position}</span>
-                    <ArrowRight className="w-3 h-3 text-slate-300" />
-                    <span className="text-slate-600">{row.actual ?? 0}/{row.budgeted ?? 0} · Vacant</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </>
       )}
 
-      <OffTargetPanel title="Off-Target Succession" rows={offTargetRows} />
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <p className="text-sm font-bold text-slate-800">Succession Coverage</p>
-        <p className="text-xs text-slate-600 mt-1">
-          {coverageRate.toFixed(0)}% · {successionData.filter(r => r.successor).length}/{successionData.length} with successor · Avg readiness {avgReadiness.toFixed(0)}%
-        </p>
-      </div>
+      {/* Chairman Review Agenda */}
+      {successionData.filter(r => r.isVacant).length > 0 && (
+        <div className="bg-white rounded-2xl border-2 border-rose-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-rose-50 border-b border-rose-200 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4 text-rose-600" />
+                <h3 className="text-base font-bold text-rose-800">Chairman Review Agenda</h3>
+                <span className="text-xs font-bold text-white bg-rose-600 px-2 py-0.5 rounded-full">
+                  {successionData.filter(r => r.isVacant).length} vacant
+                </span>
+              </div>
+              <p className="text-xs text-rose-500 mt-0.5 ml-6">Vacant critical positions requiring immediate chairman attention</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-rose-100 bg-rose-50/40">
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest w-8">No</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest">Dept</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest">Vacant Position (Title)</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest">Successor</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest">Successor Position</th>
+                  <th className="px-4 py-2.5 text-right text-[10px] font-bold text-rose-400 uppercase tracking-widest">Readiness</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold text-rose-400 uppercase tracking-widest border-l border-rose-100">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {successionData.filter(r => r.isVacant).map((row, idx) => (
+                  <tr key={row.id} className="border-t border-rose-100 hover:bg-rose-50/30 transition-colors">
+                    <td className="px-4 py-3 text-xs font-bold text-rose-300 tabular-nums">{idx + 1}</td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs font-bold text-slate-700">{row.department}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <UserX className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                        <span className="text-sm font-bold text-rose-700">{row.position}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.successor ? (
+                        <span className="text-sm font-semibold text-slate-700">{row.successor}</span>
+                      ) : (
+                        <span className="text-xs text-slate-400 italic">None identified</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs text-slate-500">{row.successorPosition ?? '—'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {row.readiness > 0 ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-14 h-1.5 bg-rose-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'bg-emerald-500' : row.readiness >= 50 ? 'bg-amber-400' : 'bg-rose-500'}`}
+                              style={{ width: `${row.readiness}%` }}
+                            />
+                          </div>
+                          <span className={`text-sm font-black tabular-nums w-9 text-right ${row.readiness >= SCORE_THRESHOLDS.successionReadiness.target ? 'text-emerald-600' : row.readiness >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            {row.readiness}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 border-l border-rose-100">
+                      <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-md bg-rose-100 text-rose-700 border border-rose-200">
+                        Chairman Review
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Ownership */}
       <div className="flex flex-wrap items-center gap-x-8 gap-y-2 px-2 text-xs text-slate-500">
